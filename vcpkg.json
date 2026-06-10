@@ -1,0 +1,20 @@
+{
+  "name": "main",
+  "version-string": "latest",
+  "dependencies": [
+    "fmt",
+    "boost-config",
+    {
+      "name": "drogon",
+      "features": [
+        "ctl",
+        "postgres",
+        "orm"
+      ]
+    },
+    "nlohmann-json",
+    "jwt-cpp",
+    "argon2",
+    "picojson"
+  ]
+}

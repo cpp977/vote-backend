@@ -1,0 +1,76 @@
+{
+  "rdbms": "postgresql",
+  "host": "127.0.0.1",
+  "port": 5432,
+  "dbname": "vote",
+  "user": "postgres",
+  "passwd": "secret",
+  "tables": [],
+  "relationships": {
+    "enabled": true,
+    "items": [
+      {
+        "type": "has many",
+        "original_table_name": "categories",
+        "original_table_alias": "category",
+        "original_key": "id",
+        "target_table_name": "questions",
+        "target_table_alias": "",
+        "target_key": "category_id",
+        "enable_reverse": true
+      },
+      {
+        "type": "has many",
+        "original_table_name": "languages",
+        "original_table_alias": "language",
+        "original_key": "code",
+        "target_table_name": "questions",
+        "target_table_alias": "",
+        "target_key": "language",
+        "enable_reverse": true
+      },
+      {
+        "type": "has many",
+        "original_table_name": "questions",
+        "original_table_alias": "question",
+        "original_key": "id",
+        "target_table_name": "answer_options",
+        "target_table_alias": "",
+        "target_key": "question_id",
+        "enable_reverse": true
+      },
+      {
+        "type": "has many",
+        "original_table_name": "questions",
+        "original_table_alias": "question",
+        "original_key": "id",
+        "target_table_name": "user_answers",
+        "target_table_alias": "",
+        "target_key": "question_id",
+        "enable_reverse": true
+      },
+      {
+        "type": "has many",
+        "original_table_name": "answer_options",
+        "original_table_alias": "answer_option",
+        "original_key": "id",
+        "target_table_name": "user_answers",
+        "target_table_alias": "",
+        "target_key": "answer_option_id",
+        "enable_reverse": true
+      }
+    ]
+  },
+  "restful_api_controllers": {
+    "enabled": true,
+    "resource_uri": "/*",
+    "class_name": "Restful*Ctrl",
+    "filters": [],
+    "db_client": {
+      "name": "default",
+      "is_fast": false
+    },
+    "directory": "include/vote-backend/controllers",
+    "generate_base_only": false
+  }
+}
