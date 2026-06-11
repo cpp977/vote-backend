@@ -7,11 +7,10 @@
 # ----------------------------------------------------------
 # Stage 1 – Build
 # ----------------------------------------------------------
-FROM docker.io/library/gcc:14-bookworm AS builder
+FROM docker.io/silkeh/clang:21-trixie AS builder
 
-# Install build tools, clang, and runtime dependencies
+# Install build tools and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang \
     cmake \
     ninja-build \
     pkg-config \
