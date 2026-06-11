@@ -6,40 +6,40 @@
  */
 
 #include "RestfulAnswerOptionsCtrl.h"
+
 #include <string>
 
-
-void RestfulAnswerOptionsCtrl::getOne(const HttpRequestPtr &req,
-                                      std::function<void(const HttpResponsePtr &)> &&callback,
-                                      AnswerOptions::PrimaryKeyType &&id)
-{
-    RestfulAnswerOptionsCtrlBase::getOne(req, std::move(callback), std::move(id));
+void RestfulAnswerOptionsCtrl::getOne(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback,
+    AnswerOptions::PrimaryKeyType&& id) {
+  RestfulAnswerOptionsCtrlBase::getOne(req, std::move(callback), std::move(id));
 }
 
-
-void RestfulAnswerOptionsCtrl::updateOne(const HttpRequestPtr &req,
-                                         std::function<void(const HttpResponsePtr &)> &&callback,
-                                         AnswerOptions::PrimaryKeyType &&id)
-{
-    RestfulAnswerOptionsCtrlBase::updateOne(req, std::move(callback), std::move(id));
+void RestfulAnswerOptionsCtrl::updateOne(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback,
+    AnswerOptions::PrimaryKeyType&& id) {
+  RestfulAnswerOptionsCtrlBase::updateOne(req, std::move(callback),
+                                          std::move(id));
 }
 
-
-void RestfulAnswerOptionsCtrl::deleteOne(const HttpRequestPtr &req,
-                                         std::function<void(const HttpResponsePtr &)> &&callback,
-                                         AnswerOptions::PrimaryKeyType &&id)
-{
-    RestfulAnswerOptionsCtrlBase::deleteOne(req, std::move(callback), std::move(id));
+void RestfulAnswerOptionsCtrl::deleteOne(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback,
+    AnswerOptions::PrimaryKeyType&& id) {
+  RestfulAnswerOptionsCtrlBase::deleteOne(req, std::move(callback),
+                                          std::move(id));
 }
 
-void RestfulAnswerOptionsCtrl::get(const HttpRequestPtr &req,
-                                   std::function<void(const HttpResponsePtr &)> &&callback)
-{
-    RestfulAnswerOptionsCtrlBase::get(req, std::move(callback));
+void RestfulAnswerOptionsCtrl::get(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  RestfulAnswerOptionsCtrlBase::get(req, std::move(callback));
 }
 
-void RestfulAnswerOptionsCtrl::create(const HttpRequestPtr &req,
-                                      std::function<void(const HttpResponsePtr &)> &&callback)
-{
-    RestfulAnswerOptionsCtrlBase::create(req, std::move(callback));
+void RestfulAnswerOptionsCtrl::create(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  RestfulAnswerOptionsCtrlBase::create(req, std::move(callback));
 }
