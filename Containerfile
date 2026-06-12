@@ -9,8 +9,22 @@
 # ----------------------------------------------------------
 FROM docker.io/silkeh/clang:21-trixie AS builder
 
+RUN <<EOF cat > /etc/apt/sources.list.d/debian-backports.sources
+Types: deb deb-src
+URIs: http://deb.debian.org/debian
+Suites: trixie-backports
+Components: main
+Enabled: yes
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+
 # Install build tools and runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -t trixie-backports -y --no-install-recommends \
+    git \
+    curl \
+    zip \
+    unzip \
+    tar \
     cmake \
     ninja-build \
     pkg-config \
@@ -18,16 +32,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     zlib1g-dev \
     lzip \
+    bison \
+    flex \
     && rm -rf /var/lib/apt/lists/*
 
-# Install vcpkg
-ARG VCPKG_ROOT=/opt/vcpkg
-RUN git clone --depth 1 https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
-    && ${VCPKG_ROOT}/bootstrap-vcpkg.sh
 
 WORKDIR /src
 
+# Install vcpkg
+ARG VCPKG_ROOT=/src/vcpkg
+RUN git clone --depth 1 https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
+    && ${VCPKG_ROOT}/bootstrap-vcpkg.sh
+
 # Copy dependency manifest first (layer caching)
+RUN rm -rf /src/vcpkg/packages /src/vcpkg/buildtrees /src/vcpkg/installed
 COPY vcpkg.json CMakeLists.txt CMakePresets.json ./
 COPY sql/ ./sql/
 COPY src/ ./src/
@@ -35,6 +53,7 @@ COPY include/ ./include/
 
 # Build release binary with clang
 ENV CXX=clang++
+
 RUN cmake --preset ninja-multi-vcpkg \
     && cmake --build --preset ninja-vcpkg-release
 
