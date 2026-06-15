@@ -1,0 +1,7 @@
+# containers/vote.network
+# Podman quadlet definition for the vote-backend bridge network
+# Install to /etc/containers/systemd/vote.network
+
+[Network]
+Driver=bridge
+NetworkName=vote
