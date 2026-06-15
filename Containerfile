@@ -60,7 +60,7 @@ RUN cmake --preset ninja-multi-vcpkg \
 # ----------------------------------------------------------
 # Stage 2 – Runtime
 # ----------------------------------------------------------
-FROM docker.io/library/debian:bookworm-slim AS runtime
+FROM docker.io/library/debian:trixie-slim AS runtime
 
 LABEL org.opencontainers.image.title="vote-backend" \
       org.opencontainers.image.description="RESTful voting backend built with Drogon" \
