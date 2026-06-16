@@ -12,6 +12,12 @@
         "orm"
       ]
     },
+    {
+      "name": "trantor",
+      "features": [
+        "spdlog"
+      ]
+    },
     "nlohmann-json",
     "jwt-cpp",
     "argon2",
