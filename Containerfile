@@ -45,11 +45,11 @@ RUN git clone --depth 1 https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
     && ${VCPKG_ROOT}/bootstrap-vcpkg.sh
 
 # Copy dependency manifest first (layer caching)
-RUN rm -rf /src/vcpkg/packages /src/vcpkg/buildtrees /src/vcpkg/installed
 COPY vcpkg.json CMakeLists.txt CMakePresets.json ./
 COPY sql/ ./sql/
 COPY src/ ./src/
 COPY include/ ./include/
+COPY ports/ ./ports/
 
 # Build release binary with clang
 ENV CXX=clang++
@@ -81,6 +81,9 @@ RUN groupadd --gid 1001 appuser \
 # Configuration directory
 ARG CONF_DIR=/etc/vote
 RUN mkdir -p ${CONF_DIR} && chown appuser:appuser ${CONF_DIR}
+
+ARG STATIC_DIR=/static
+RUN mkdir -p ${STATIC_DIR} && chown appuser:appuser ${STATIC_DIR}
 
 # Copy release binary from builder
 COPY --from=builder /src/builds/ninja-multi-vcpkg/Release/main /usr/local/bin/vote-backend

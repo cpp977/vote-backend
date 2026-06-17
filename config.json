@@ -1,27 +1,51 @@
 {
-    "listeners": [
-        {
-            "address": "0.0.0.0",
-            "port": 8848,
-            "https": false
-        }
-    ],
-    "db_clients": [
-        {
-            "name": "default",
-            "rdbms": "postgresql",
-            "host": "drogon-postgres.dns.podman",
-            "port": 5432,
-            "dbname": "vote",
-            "user": "postgres",
-            "passwd": "secret",
-            "is_fast": false,
-            "number_of_connections": 1,
-            "timeout": -1.0,
-            "auto_batch": false
-        }
-    ],
-    "jwt_secret": "change-me-to-a-strong-random-secret-key-min-32-chars",
-    "jwt_access_token_expiry_minutes": 15,
-    "jwt_refresh_token_expiry_days": 7
+  "listeners": [
+    {
+      "address": "0.0.0.0",
+      "port": 8848,
+      "https": false
+    }
+  ],
+  "db_clients": [
+    {
+      "name": "default",
+      "rdbms": "postgresql",
+      "host": "drogon-postgres.dns.podman",
+      "port": 5432,
+      "dbname": "vote",
+      "user": "postgres",
+      "passwd": "secret",
+      "is_fast": false,
+      "number_of_connections": 1,
+      "timeout": -1.0,
+      "auto_batch": false
+    }
+  ],
+  "app": {
+    "document_root": "/static",
+    "log": {
+      "log_path": "",
+      "use_spdlog": true,
+      "logfile_base_name": "",
+      "log_size_limit": 100000000,
+      "max_files": 0,
+      "log_level": "DEBUG",
+      "display_local_time": false
+    }
+  },
+  "jwt_secret": "change-me-to-a-strong-random-secret-key-min-32-chars",
+  "jwt_access_token_expiry_minutes": 15,
+  "jwt_refresh_token_expiry_days": 7,
+  "plugins": [
+    {
+      "name": "drogon::plugin::AccessLogger",
+      "dependencies": [],
+      "config": {
+        "log_path": "",
+        "log_format": "",
+        "log_index": 0,
+        "use_spdlog": true
+      }
+    }
+  ]
 }

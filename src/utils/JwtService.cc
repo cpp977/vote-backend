@@ -8,6 +8,7 @@
 #include "vote-backend/utils/JwtService.h"
 
 #include <jwt-cpp/traits/open-source-parsers-jsoncpp/defaults.h>
+#include <trantor/utils/Logger.h>
 
 #include <iostream>
 #include <stdexcept>
@@ -24,11 +25,10 @@ std::string JwtService::generate_access_token(
     int64_t user_id, const std::string& username) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::minutes(access_expiry_minutes_);
-  std::cerr << "[JwtService] generate_access_token: access_expiry_minutes_="
+  LOG_INFO << "[JwtService] generate_access_token: access_expiry_minutes_="
             << access_expiry_minutes_
             << " now=" << std::chrono::system_clock::to_time_t(now)
-            << " exp=" << std::chrono::system_clock::to_time_t(exp)
-            << std::endl;
+            << " exp=" << std::chrono::system_clock::to_time_t(exp);
   auto token = jwt::create()
                    .set_issuer("vote-backend")
                    .set_type("JWT")
@@ -45,11 +45,10 @@ std::string JwtService::generate_access_token(
 std::string JwtService::generate_refresh_token(int64_t user_id) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::hours(24 * refresh_expiry_days_);
-  std::cerr << "[JwtService] generate_refresh_token: refresh_expiry_days_="
+  LOG_INFO << "[JwtService] generate_refresh_token: refresh_expiry_days_="
             << refresh_expiry_days_
             << " now=" << std::chrono::system_clock::to_time_t(now)
-            << " exp=" << std::chrono::system_clock::to_time_t(exp)
-            << std::endl;
+            << " exp=" << std::chrono::system_clock::to_time_t(exp);
   auto token =
       jwt::create()
           .set_issuer("vote-backend")
