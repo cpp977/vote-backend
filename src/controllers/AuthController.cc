@@ -106,37 +106,6 @@ std::string sha256_hex(const std::string& input) {
 }
 
 /**
- * @brief Build a JwtService from the app configuration.
- */
-vote_backend::utils::JwtService make_jwt_service() {
-  // Load JWT configuration directly from the project's config.1json file.
-  // This avoids reliance on drogon's custom config, which does not contain the
-  // top‑level JWT entries.
-  char* conf_path_c = nullptr;
-  conf_path_c = std::getenv("VOTE_BACKEND_CONFPATH");
-  std::string config_path = "/etc/vote";
-  if (conf_path_c != nullptr) {
-    config_path = conf_path_c;
-  }
-
-  Json::Value cfg;
-  std::ifstream ifs(fmt::format("{}/config.json", config_path));
-  if (ifs.is_open()) {
-    ifs >> cfg;
-    ifs.close();
-  } else {
-    // Fallback: use default values if the config cannot be read.
-    cfg["jwt_secret"] = "change-me-to-a-strong-random-secret-key-min-32-chars";
-    cfg["jwt_access_token_expiry_minutes"] = 15;
-    cfg["jwt_refresh_token_expiry_days"] = 7;
-  }
-  return vote_backend::utils::JwtService(
-      cfg["jwt_secret"].asString(),
-      cfg["jwt_access_token_expiry_minutes"].asInt(),
-      cfg["jwt_refresh_token_expiry_days"].asInt());
-}
-
-/**
  * @brief Helper to send a JSON error response.
  */
 void send_error(const std::function<void(const HttpResponsePtr&)>& cb,
@@ -273,7 +242,7 @@ void AuthController::login(const HttpRequestPtr& req,
         std::string uname = row["username"].as<std::string>();
 
         // Generate tokens
-        auto jwt_svc = make_jwt_service();
+        auto jwt_svc = vote_backend::utils::make_jwt_service();
         std::string access_token =
             jwt_svc.generate_access_token(user_id, uname);
         std::string refresh_token = jwt_svc.generate_refresh_token(user_id);
@@ -358,7 +327,7 @@ void AuthController::refresh(const HttpRequestPtr& req,
   }
 
   // Verify JWT signature and expiry
-  auto jwt_svc = make_jwt_service();
+  auto jwt_svc = vote_backend::utils::make_jwt_service();
   auto claims = jwt_svc.verify_token(refresh_token);
 
   if (claims.isNull() || claims.empty()) {

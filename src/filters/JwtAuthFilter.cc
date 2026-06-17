@@ -44,13 +44,8 @@ void JwtAuthFilter::doFilter(const HttpRequestPtr& req,
 
   std::string token = authHeader.substr(7);  // strip "Bearer "
 
-  // Build JwtService from app config (make_jwt_service is in AuthController.cc
-  // anonymous namespace)
-  auto& custom_cfg = drogon::app().getCustomConfig();
-  vote_backend::utils::JwtService jwt_svc(
-      custom_cfg["jwt_secret"].asString(),
-      custom_cfg["jwt_access_token_expiry_minutes"].asInt(),
-      custom_cfg["jwt_refresh_token_expiry_days"].asInt());
+  // Build JwtService using the same configuration loader as AuthController
+  vote_backend::utils::JwtService jwt_svc = make_jwt_service();
 
   Json::Value claims = jwt_svc.verify_token(token);
 

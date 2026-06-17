@@ -68,4 +68,12 @@ private:
     int refresh_expiry_days_ = 7;
 };
 
+/**
+ * @brief Create a JwtService instance from the application configuration.
+ * @return A configured JwtService instance.
+ *
+ * Reads configuration from the project's config.json file.
+ */
+JwtService make_jwt_service();
+
 } // namespace vote_backend::utils

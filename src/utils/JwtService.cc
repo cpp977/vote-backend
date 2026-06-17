@@ -9,11 +9,51 @@
 
 #include <jwt-cpp/traits/open-source-parsers-jsoncpp/defaults.h>
 #include <trantor/utils/Logger.h>
+#include <fmt/core.h>
 
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
 using namespace vote_backend::utils;
+
+namespace vote_backend::utils {
+
+JwtService make_jwt_service() {
+  // Load JWT configuration directly from the project's config.json file.
+  // This avoids reliance on drogon's custom config, which does not contain the
+  // top‑level JWT entries.
+  char* conf_path_c = nullptr;
+  conf_path_c = std::getenv("VOTE_BACKEND_CONFPATH");
+  std::string config_path = "/etc/vote";
+  if (conf_path_c != nullptr) {
+    config_path = conf_path_c;
+  }
+
+  LOG_INFO << "[make_jwt_service] VOTE_BACKEND_CONFPATH=" << (conf_path_c ? conf_path_c : "(null)");
+  LOG_INFO << "[make_jwt_service] config_path=" << config_path;
+
+  Json::Value cfg;
+  std::ifstream ifs(fmt::format("{}/config.json", config_path));
+  if (ifs.is_open()) {
+    ifs >> cfg;
+    ifs.close();
+    LOG_INFO << "[make_jwt_service] Successfully loaded config.json";
+    LOG_INFO << "[make_jwt_service] jwt_secret length=" << cfg["jwt_secret"].asString().length();
+  } else {
+    // Fallback: use default values if the config cannot be read.
+    LOG_ERROR << "[make_jwt_service] Failed to open config.json at " << config_path << ", using defaults";
+    cfg["jwt_secret"] = "change-me-to-a-strong-random-secret-key-min-32-chars";
+    cfg["jwt_access_token_expiry_minutes"] = 15;
+    cfg["jwt_refresh_token_expiry_days"] = 7;
+  }
+  return JwtService(
+      cfg["jwt_secret"].asString(),
+      cfg["jwt_access_token_expiry_minutes"].asInt(),
+      cfg["jwt_refresh_token_expiry_days"].asInt());
+}
+
+} // namespace vote_backend::utils
 
 JwtService::JwtService(const std::string& secret, int access_expiry_minutes,
                        int refresh_expiry_days)
