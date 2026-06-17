@@ -53,8 +53,11 @@ COPY ports/ ./ports/
 
 # Build release binary with clang
 ENV CXX=clang++
+ENV VCPKG_DEFAULT_BINARY_CACHE=/vcpkg-bincache
 
-RUN cmake --preset ninja-multi-vcpkg \
+RUN --mount=type=cache,target=/src/vcpkg/downloads \
+    --mount=type=cache,target=/vcpkg-bincache \
+    cmake --preset ninja-multi-vcpkg \
     && cmake --build --preset ninja-vcpkg-release
 
 # ----------------------------------------------------------
