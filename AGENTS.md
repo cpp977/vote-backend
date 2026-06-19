@@ -4,8 +4,9 @@
 
 This is a c++ RESTful backend which uses the drogon c++ library.
 It uses a postgresql database as storage.
+Both the backend and the database are running in rootless podman containers using quadlets and systemd for orchestraction.
 
-## Build, Lint & Test Commands
+## Build, Lint & Test Commands on native hosts
 - **Configure** `CXX=clang++ cmake --preset ninja-multi-vcpkg`
 - **Build (Debug)**: `CXX=clang++ cmake --build --preset ninja-vcpkg-debug`
 - **Build (Release)**: `CXX=clang++ cmake --build --preset ninja-vcpkg-release`
@@ -16,9 +17,17 @@ It uses a postgresql database as storage.
 - **Check formatting**: `CXX=clang++ cmake --workflow --preset check-format`
 - **Auto‑format**: `CXX=clang++ cmake --workflow --preset check-format`
 
+## Build container (compilation included)
+- `podman build -f Containerfile --tag vote-backend:0.1 .`
+
+## Start/Stop the backend
+- **Start** `systemctl --user start vote-backend.service`
+- **Restart** `systemctl --user restart vote-backend.service`
+- **Stop** `systemctl --user stop vote-backend.service`
+
 ## Database
 
-The postgresql database runs a container named `drogon-postgres`
+The postgresql database runs in a container named `drogon-postgres`
 
 Useful commands:
 
@@ -40,6 +49,6 @@ a69355ee5ca7b8cf7d591cca68faa57a6ac7d2deaee1caf83acf4ff0c5b`
 - **Types**: Enable `C++23`; avoid raw pointers, prefer `std::unique_ptr`/`std::shared_ptr` and `std::optional` where appropriate.
 - **Error handling**: Throw exceptions for unrecoverable errors; use `try/catch` at request boundaries and return proper HTTP error codes.
 - **Comments**: Doxygen‑compatible block comments for public APIs; line comments for implementation details.
-- **Testing**: Write unit tests with GoogleTest; each test file mirrors the source file name with `_test.cpp` suffix.
+- **Testing**: Write unit tests with doctest; each test file mirrors the source file name with `_test.cpp` suffix.
 - **Linting**: Run `clang-tidy <SOURCE>` for static analysis.
 - **Commit**: Ensure `git diff --check` passes, format is clean, and all tests succeed before pushing.
