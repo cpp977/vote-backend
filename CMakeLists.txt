@@ -41,24 +41,9 @@ target_link_libraries(main PRIVATE Drogon::Drogon fmt::fmt-header-only unofficia
 target_include_directories(main PRIVATE include)
 set_property(TARGET main PROPERTY CXX_STANDARD 23)
 
-add_custom_target(
-    check-format
-    COMMAND clang-format --dry-run ${VOTE_BACKEND_SOURCES}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "checking format in src..."
-)
-
-add_custom_target(
-    format
-    COMMAND clang-format -i ${VOTE_BACKEND_SOURCES}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "checking format in src..."
-)
-
 # Testing configuration
 enable_testing()
 find_package(doctest CONFIG REQUIRED)
-find_package(jsoncpp REQUIRED)
 
 # Test sources (include source files needed for testing)
 set(
@@ -66,17 +51,15 @@ set(
     tests/main_test.cpp
     tests/users_model_test.cpp
     tests/jwt_service_test.cpp
+    tests/jwt_auth_filter_test.cpp
 )
 
 # Test executable
 add_executable(vote_backend_tests ${VOTE_BACKEND_TEST_SOURCES} ${VOTE_BACKEND_SOURCES})
 target_link_libraries(vote_backend_tests PRIVATE
     doctest::doctest
-    jwt-cpp::jwt-cpp
-    JsonCpp::JsonCpp
-    OpenSSL::SSL
-    OpenSSL::Crypto
     Drogon::Drogon
+    jwt-cpp::jwt-cpp
     fmt::fmt-header-only
     unofficial::argon2::libargon2
 )
@@ -85,4 +68,20 @@ set_property(TARGET vote_backend_tests PROPERTY CXX_STANDARD 23)
 
 # Register tests with ctest
 include(doctest)
-doctest_discover_tests(vote_backend_tests)
+doctest_discover_tests(vote_backend_tests
+    PROPERTIES ENVIRONMENT "VOTE_BACKEND_CONFPATH=${CMAKE_SOURCE_DIR}/tests"
+)
+
+add_custom_target(
+    check-format
+    COMMAND clang-format --dry-run ${VOTE_BACKEND_SOURCES} ${VOTE_BACKEND_TEST_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "checking format in src..."
+)
+
+add_custom_target(
+    format
+    COMMAND clang-format -i ${VOTE_BACKEND_SOURCES} ${VOTE_BACKEND_TEST_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "checking format in src..."
+)

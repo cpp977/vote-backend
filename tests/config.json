@@ -1,0 +1,5 @@
+{
+  "jwt_secret": "test-secret-key-for-unit-tests-only-32chars",
+  "jwt_access_token_expiry_minutes": 15,
+  "jwt_refresh_token_expiry_days": 7
+}
