@@ -15,7 +15,6 @@ find_package(OpenSSL REQUIRED)
 
 set(
     VOTE_BACKEND_SOURCES
-    src/main.cpp
     include/vote-backend/controllers/RestfulUserAnswersCtrlBase.cc
     include/vote-backend/controllers/RestfulUserAnswersCtrl.cc
     include/vote-backend/controllers/RestfulQuestionsCtrlBase.cc
@@ -37,7 +36,7 @@ set(
 )
 
 # main target
-add_executable(main ${VOTE_BACKEND_SOURCES})
+add_executable(main src/main.cpp ${VOTE_BACKEND_SOURCES})
 target_link_libraries(main PRIVATE Drogon::Drogon fmt::fmt-header-only unofficial::argon2::libargon2 jwt-cpp::jwt-cpp OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(main PRIVATE include)
 set_property(TARGET main PROPERTY CXX_STANDARD 23)
@@ -55,3 +54,35 @@ add_custom_target(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "checking format in src..."
 )
+
+# Testing configuration
+enable_testing()
+find_package(doctest CONFIG REQUIRED)
+find_package(jsoncpp REQUIRED)
+
+# Test sources (include source files needed for testing)
+set(
+    VOTE_BACKEND_TEST_SOURCES
+    tests/main_test.cpp
+    tests/users_model_test.cpp
+    tests/jwt_service_test.cpp
+)
+
+# Test executable
+add_executable(vote_backend_tests ${VOTE_BACKEND_TEST_SOURCES} ${VOTE_BACKEND_SOURCES})
+target_link_libraries(vote_backend_tests PRIVATE
+    doctest::doctest
+    jwt-cpp::jwt-cpp
+    JsonCpp::JsonCpp
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    Drogon::Drogon
+    fmt::fmt-header-only
+    unofficial::argon2::libargon2
+)
+target_include_directories(vote_backend_tests PRIVATE include)
+set_property(TARGET vote_backend_tests PROPERTY CXX_STANDARD 23)
+
+# Register tests with ctest
+include(doctest)
+doctest_discover_tests(vote_backend_tests)

@@ -14,10 +14,25 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 using namespace vote_backend::utils;
 
 namespace vote_backend::utils {
+
+std::string generate_jti() {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(0, 255);
+
+  std::stringstream ss;
+  for (int i = 0; i < 16; ++i) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << dis(gen);
+  }
+  return ss.str();
+}
 
 JwtService make_jwt_service() {
   // Load JWT configuration directly from the project's config.json file.
@@ -53,7 +68,18 @@ JwtService make_jwt_service() {
       cfg["jwt_refresh_token_expiry_days"].asInt());
 }
 
-} // namespace vote_backend::utils
+std::string JwtService::extract_jti_unsafe(const std::string& token) const {
+  try {
+    auto decoded = jwt::decode(token);
+    auto payload = decoded.get_payload_json();
+    if (payload.isMember("jti")) {
+      return payload["jti"].asString();
+    }
+  } catch (const std::exception&) {
+    // Ignore decoding errors and return empty string.
+  }
+  return "";
+}
 
 JwtService::JwtService(const std::string& secret, int access_expiry_minutes,
                        int refresh_expiry_days)
@@ -77,6 +103,7 @@ std::string JwtService::generate_access_token(
                    .set_expires_at(exp)
                    .set_payload_claim("username", jwt::claim(username))
                    .set_payload_claim("type", jwt::claim(std::string("access")))
+                   .set_id(generate_jti())
                    .sign(jwt::algorithm::hs256{secret_});
 
   return token;
@@ -97,6 +124,7 @@ std::string JwtService::generate_refresh_token(int64_t user_id) const {
           .set_issued_at(now)
           .set_expires_at(exp)
           .set_payload_claim("type", jwt::claim(std::string("refresh")))
+          .set_id(generate_jti())
           .sign(jwt::algorithm::hs256{secret_});
 
   return token;
@@ -125,3 +153,5 @@ Json::Value JwtService::verify_token(const std::string& token) const {
     return Json::Value();
   }
 }
+
+} // namespace vote_backend::utils
