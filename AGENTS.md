@@ -44,13 +44,20 @@ This playbook deploys the application into rootless Podman containers via quadle
 - **Check formatting**: `CXX=clang++ cmake --workflow --preset check-format`
 - **Auto‑format**: `CXX=clang++ cmake --workflow --preset check-format`
 
+## Version
+
+The project version is defined **once** in `CMakeLists.txt` via `project(vote-backend VERSION ...)`.
+CMake generates `version.txt` at configure time; the Ansible deployment and quadlet template
+(`quadlets/vote-backend@.container`) derive their image tag from it.
+
 ## Build container (compilation included)
-- `podman build -f Containerfile --tag vote-backend:0.1 .`
+- `CXX=clang++ cmake --preset ninja-multi-vcpkg` (generates `version.txt`)
+- `podman build -f Containerfile --tag vote-backend:"$(cat version.txt)" .`
 
 ## Start/Stop the backend
-- **Start** `systemctl --user start vote-backend.service`
-- **Restart** `systemctl --user restart vote-backend.service`
-- **Stop** `systemctl --user stop vote-backend.service`
+- **Start** `systemctl --user start vote-backend@"$(cat /path/to/version.txt)".service`
+- **Restart** `systemctl --user restart vote-backend@"$(cat /path/to/version.txt)".service`
+- **Stop** `systemctl --user stop vote-backend@"$(cat /path/to/version.txt)".service`
 
 ## Database
 

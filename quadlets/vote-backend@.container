@@ -1,0 +1,25 @@
+# quadlets/vote-backend@.container
+# Podman quadlet template for the vote-backend application.
+# The instance name (%i) is the version string, e.g. vote-backend@0.1.0.service
+# Install to /etc/containers/systemd/vote-backend@.container
+#
+# Build the image first (after cmake configure generates version.txt):
+#   podman build -f Containerfile -t vote-backend:"$(cat version.txt)" .
+#
+# The database must be running before this container starts.
+# Config is loaded from /etc/vote/config.json inside the container.
+
+[Container]
+ContainerName=vote-backend
+Image=localhost/vote-backend:%i
+Network=vote.network
+PublishPort=8848:8848
+
+[Service]
+Restart=on-failure
+
+[Unit]
+After=drogon-postgres.service
+Requires=drogon-postgres.service
+
+[Install]

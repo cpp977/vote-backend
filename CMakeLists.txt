@@ -1,7 +1,11 @@
 # CMakeLists.txt
 cmake_minimum_required(VERSION 4.2)
-project(vote-backend)
+project(vote-backend VERSION 0.1.0 LANGUAGES CXX)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Generate version.txt for external tooling (Ansible, etc.)
+file(GENERATE OUTPUT "${CMAKE_SOURCE_DIR}/version.txt" CONTENT "${PROJECT_VERSION}\n")
 if(NOT APPLE)
     # set(CMAKE_CXX_CLANG_TIDY clang-tidy)
 endif()

@@ -25,12 +25,10 @@
     state: present
     src: "{{ vote_backend_quadlet_dir }}/drogon-postgres.container"
 
-- name: Install vote-backend.container quadlet
+- name: Install vote-backend@.container quadlet template
   containers.podman.podman_quadlet:
     state: present
-    src: "{{ vote_backend_quadlet_dir }}/vote-backend.container"
-    files:
-      - "{{ vote_backend_quadlet_dir }}/vote-backend.d/dev-binary.conf"
+    src: "{{ vote_backend_quadlet_dir }}/vote-backend@.container"
 
 - name: Ensure containers.conf disables netavark firewall (nftables incompatibility)
   ansible.builtin.copy:
@@ -56,9 +54,9 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
 
-- name: Start vote-backend service
+- name: Start vote-backend service (template instance)
   ansible.builtin.systemd_service:
-    name: vote-backend.service
+    name: "vote-backend@{{ vote_backend_image_tag }}.service"
     state: started
     enabled: true
     scope: user
