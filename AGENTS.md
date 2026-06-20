@@ -6,6 +6,33 @@ This is a c++ RESTful backend which uses the drogon c++ library.
 It uses a postgresql database as storage.
 Both the backend and the database are running in rootless podman containers using quadlets and systemd for orchestraction.
 
+## Ansible Playbooks
+
+Two Ansible playbooks automate the main workflows. Both target the `dev` group (localhost).
+
+### Build & Test (native)
+
+`ansible-playbook ansible/playbooks/build-and-test.yml`
+
+This playbook handles the full native build and test pipeline:
+1. Installs build prerequisites (clang, cmake, ninja, dev libraries) if missing
+2. Configures the project with CMake (`ninja-multi-vcpkg` preset)
+3. Builds both **Debug** and **Release** configurations
+4. Runs all unit tests via ctest (Debug)
+5. Checks code formatting with `clang-format`
+
+### Deploy / Redeploy (containers)
+
+`ansible-playbook ansible/playbooks/deploy-local.yml`
+
+This playbook deploys the application into rootless Podman containers via quadlets:
+1. Builds the `Containerfile` image
+2. Installs quadlets (network, postgres, app) into the user systemd instance
+3. Reloads the user systemd daemon
+4. Starts and enables the database and backend services
+
+**Typical workflow**: run **build-and-test** first to validate changes natively, then run **deploy-local** to (re)deploy the containerized application for real integration testing.
+
 ## Build, Lint & Test Commands on native hosts
 - **Configure** `CXX=clang++ cmake --preset ninja-multi-vcpkg`
 - **Build (Debug)**: `CXX=clang++ cmake --build --preset ninja-vcpkg-debug`

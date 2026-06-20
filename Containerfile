@@ -50,6 +50,7 @@ COPY sql/ ./sql/
 COPY src/ ./src/
 COPY include/ ./include/
 COPY ports/ ./ports/
+COPY tests/ ./tests/
 
 # Build release binary with clang
 ENV CXX=clang++

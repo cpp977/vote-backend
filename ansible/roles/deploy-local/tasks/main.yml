@@ -1,0 +1,66 @@
+---
+# roles/deploy-local/tasks/main.yml
+# Local deployment role for vote-backend.
+# Builds the container image, installs quadlets, and starts
+# rootless Podman systemd services for the app and database.
+
+- name: Build vote-backend container image
+  containers.podman.podman_image:
+    name: "{{ vote_backend_image_name }}"
+    tag: "{{ vote_backend_image_tag }}"
+    state: build
+    path: "{{ vote_backend_project_root }}"
+    build:
+      file: "{{ vote_backend_project_root }}/Containerfile"
+      force_rm: true
+  register: image_build
+
+- name: Install vote.network quadlet
+  containers.podman.podman_quadlet:
+    state: present
+    src: "{{ vote_backend_quadlet_dir }}/vote.network"
+
+- name: Install drogon-postgres.container quadlet
+  containers.podman.podman_quadlet:
+    state: present
+    src: "{{ vote_backend_quadlet_dir }}/drogon-postgres.container"
+
+- name: Install vote-backend.container quadlet
+  containers.podman.podman_quadlet:
+    state: present
+    src: "{{ vote_backend_quadlet_dir }}/vote-backend.container"
+    files:
+      - "{{ vote_backend_quadlet_dir }}/vote-backend.d/dev-binary.conf"
+
+- name: Ensure containers.conf disables netavark firewall (nftables incompatibility)
+  ansible.builtin.copy:
+    dest: "{{ ansible_env.HOME }}/.config/containers/containers.conf"
+    content: |
+      [network]
+      firewall_driver = "none"
+    mode: "0644"
+
+- name: Reload systemd user daemon to pick up new quadlets
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+- name: Start drogon-postgres service
+  ansible.builtin.systemd_service:
+    name: drogon-postgres.service
+    state: started
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+- name: Start vote-backend service
+  ansible.builtin.systemd_service:
+    name: vote-backend.service
+    state: started
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"

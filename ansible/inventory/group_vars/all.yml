@@ -1,0 +1,16 @@
+---
+# Compiler settings
+vote_backend_cxx: clang++
+
+# Build presets
+vote_backend_configure_preset: ninja-multi-vcpkg
+vote_backend_build_preset_debug: ninja-vcpkg-debug
+vote_backend_build_preset_release: ninja-vcpkg-release
+vote_backend_test_preset_debug: test-debug
+vote_backend_test_preset_release: test-release
+
+# Deployment – local (Podman quadlets)
+vote_backend_image_name: localhost/vote-backend
+vote_backend_image_tag: "0.1"
+vote_backend_quadlet_dir: "{{ lookup('env', 'HOME') }}/code/private/vote-backend/quadlets"
+vote_backend_uid: "{{ ansible_user_uid | default(1000) }}"

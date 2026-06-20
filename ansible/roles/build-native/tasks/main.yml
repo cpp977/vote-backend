@@ -1,0 +1,82 @@
+---
+# roles/build-native/tasks/main.yml
+# Native build and test role for vote-backend.
+# Ensures prerequisites, configures with CMake, builds debug+release,
+# runs unit tests, and checks formatting.
+
+- name: Check if clang++ is already installed
+  ansible.builtin.command:
+    cmd: "clang++ --version"
+  register: clang_check
+  changed_when: false
+  failed_when: false
+
+- name: Install build prerequisites
+  ansible.builtin.package:
+    name:
+      - clang
+      - cmake
+      - ninja
+      - pkg-config
+      - libssl-dev
+      - libpq-dev
+      - zlib1g-dev
+      - git
+      - curl
+      - zip
+      - unzip
+      - tar
+      - lzip
+      - bison
+      - flex
+    state: present
+  become: true
+  when: clang_check.rc != 0
+
+- name: Configure CMake (ninja-multi-vcpkg)
+  ansible.builtin.command:
+    cmd: "cmake --preset {{ vote_backend_configure_preset }}"
+    chdir: "{{ vote_backend_project_root }}"
+  environment:
+    CXX: "{{ vote_backend_cxx }}"
+
+- name: Build (Debug)
+  ansible.builtin.command:
+    cmd: "cmake --build --preset {{ vote_backend_build_preset_debug }}"
+    chdir: "{{ vote_backend_project_root }}"
+  environment:
+    CXX: "{{ vote_backend_cxx }}"
+
+- name: Build (Release)
+  ansible.builtin.command:
+    cmd: "cmake --build --preset {{ vote_backend_build_preset_release }}"
+    chdir: "{{ vote_backend_project_root }}"
+  environment:
+    CXX: "{{ vote_backend_cxx }}"
+
+- name: Run all unit tests (Debug)
+  ansible.builtin.command:
+    cmd: "ctest --preset {{ vote_backend_test_preset_debug }}"
+    chdir: "{{ vote_backend_project_root }}"
+  environment:
+    CXX: "{{ vote_backend_cxx }}"
+  register: test_result
+
+- name: Display test results
+  ansible.builtin.debug:
+    var: test_result.stdout_lines
+  when: test_result is defined
+
+- name: Check formatting
+  ansible.builtin.command:
+    cmd: "cmake --workflow --preset check-format"
+    chdir: "{{ vote_backend_project_root }}"
+  environment:
+    CXX: "{{ vote_backend_cxx }}"
+  changed_when: false
+  register: format_result
+
+- name: Display format check results
+  ansible.builtin.debug:
+    var: format_result.stdout_lines
+  when: format_result is defined

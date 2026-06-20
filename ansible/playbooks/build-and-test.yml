@@ -1,0 +1,23 @@
+---
+# playbooks/build-and-test.yml
+# Target 1: Native build and unit tests for vote-backend.
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/build-and-test.yml
+#
+# This playbook:
+#   1. Installs build prerequisites (clang, cmake, ninja, dev libraries)
+#   2. Configures the project with CMake (ninja-multi-vcpkg preset)
+#   3. Builds both Debug and Release configurations
+#   4. Runs all unit tests via ctest (Debug)
+#   5. Checks code formatting with clang-format
+
+- name: Build and test vote-backend (native)
+  hosts: dev
+  gather_facts: true
+
+  vars:
+    vote_backend_project_root: "{{ playbook_dir }}/../.."
+
+  roles:
+    - role: build-native

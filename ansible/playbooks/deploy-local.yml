@@ -1,0 +1,22 @@
+---
+# playbooks/deploy-local.yml
+# Target 2a: Local deployment for vote-backend.
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/deploy-local.yml
+#
+# This playbook:
+#   1. Builds the Containerfile image
+#   2. Installs quadlets (network, postgres, app) into the user systemd instance
+#   3. Reloads the user systemd daemon
+#   4. Starts and enables the database and backend services
+
+- name: Deploy vote-backend locally (Podman)
+  hosts: dev
+  gather_facts: true
+
+  vars:
+    vote_backend_project_root: "{{ playbook_dir }}/../.."
+
+  roles:
+    - role: deploy-local
