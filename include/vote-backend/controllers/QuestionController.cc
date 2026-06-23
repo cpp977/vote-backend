@@ -5,9 +5,51 @@
 #include <drogon/drogon.h>
 #include <json/json.h>
 
+#include <string>
+
 using drogon::orm::DrogonDbException;
 using drogon::orm::Result;
 using namespace drogon;
+
+void QuestionController::getQuestionsWithCategories(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
+  // Cast integer columns to text in SQL to avoid drogon ORM type-conversion
+  // issues (std::stol) that occur with plain (non-prepared) statements.
+  std::string sql =
+      "SELECT q.id::text, q.text, q.category_id::text, "
+      "       c.name AS category_name, "
+      "       q.language, q.min_age::text, q.created_at "
+      "FROM questions q "
+      "JOIN categories c ON q.category_id = c.id";
+
+  auto dbClient = app().getDbClient();
+  dbClient->execSqlAsync(
+      sql,
+      [cb](const Result& r) {
+        Json::Value arr(Json::arrayValue);
+        for (const auto& row : r) {
+          Json::Value q;
+          q["id"] = Json::Int64(std::stoll(row.at("id").as<std::string>()));
+          q["text"] = row.at("text").as<std::string>();
+          q["category_id"] = Json::Int64(
+              std::stoll(row.at("category_id").as<std::string>()));
+          q["category_name"] = row.at("category_name").as<std::string>();
+          q["language"] = row.at("language").as<std::string>();
+          q["min_age"] = std::stoi(row.at("min_age").as<std::string>());
+          q["created_at"] = row.at("created_at").as<std::string>();
+          arr.append(q);
+        }
+        auto resp = HttpResponse::newHttpJsonResponse(arr);
+        cb(resp);
+      },
+      [cb](const DrogonDbException& e) {
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        cb(resp);
+      });
+}
 
 void QuestionController::getStats(
     const drogon::HttpRequestPtr& req,
