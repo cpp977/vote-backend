@@ -39,6 +39,7 @@
     chdir: "{{ vote_backend_project_root }}"
   environment:
     CXX: "{{ vote_backend_cxx }}"
+  changed_when: false
 
 - name: Build (Debug)
   ansible.builtin.command:
@@ -46,6 +47,7 @@
     chdir: "{{ vote_backend_project_root }}"
   environment:
     CXX: "{{ vote_backend_cxx }}"
+  changed_when: false
 
 - name: Build (Release)
   ansible.builtin.command:
@@ -53,6 +55,7 @@
     chdir: "{{ vote_backend_project_root }}"
   environment:
     CXX: "{{ vote_backend_cxx }}"
+  changed_when: false
 
 - name: Run all unit tests (Debug)
   ansible.builtin.command:
@@ -60,6 +63,7 @@
     chdir: "{{ vote_backend_project_root }}"
   environment:
     CXX: "{{ vote_backend_cxx }}"
+  changed_when: false
   register: test_result
 
 - name: Display test results
