@@ -11,7 +11,7 @@ TEST_CASE("QuestionsWithCategories") {
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  CHECK(resp.json_body.size() == 50);
+  CHECK(resp.json_body.size() == 100);
 
   // Every element must have the expected keys.
   std::vector<std::string> expected_keys = {
