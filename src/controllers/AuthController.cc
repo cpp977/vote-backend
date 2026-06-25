@@ -540,6 +540,57 @@ void AuthController::logout(const HttpRequestPtr& req,
 }
 
 // ---------------------------------------------------------------------------
+// GET /me
+// ---------------------------------------------------------------------------
+void AuthController::me(const HttpRequestPtr& req,
+                        std::function<void(const HttpResponsePtr&)>&& cb) {
+  // Retrieve user_id set by JwtAuthFilter
+  auto user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
+    send_error(cb, "Unauthorized", k401Unauthorized);
+    return;
+  }
+
+  auto db = app().getDbClient();
+
+  db->execSqlAsync(
+      "SELECT id, username, email, birth_year, gender, nationality, "
+      "created_at FROM users WHERE id = $1",
+      [cb](const drogon::orm::Result& r) {
+        if (r.size() == 0) {
+          send_error(cb, "User not found", k404NotFound);
+          return;
+        }
+
+        const auto& row = r[0];
+        Json::Value user;
+        user["id"] = Json::Int64(row["id"].as<int64_t>());
+        user["username"] = row["username"].as<std::string>();
+        user["email"] = row["email"].as<std::string>();
+
+        if (!row["birth_year"].isNull()) {
+          user["birth_year"] = row["birth_year"].as<int>();
+        }
+        if (!row["gender"].isNull()) {
+          user["gender"] = row["gender"].as<std::string>();
+        }
+        if (!row["nationality"].isNull()) {
+          user["nationality"] = row["nationality"].as<std::string>();
+        }
+        user["created_at"] = row["created_at"].as<std::string>();
+
+        auto resp = HttpResponse::newHttpJsonResponse(user);
+        resp->setStatusCode(k200OK);
+        cb(resp);
+      },
+      [cb](const drogon::orm::DrogonDbException& e) {
+        send_error(cb, std::string("Database error: ") + e.base().what(),
+                   k500InternalServerError);
+      },
+      user_id);
+}
+
+// ---------------------------------------------------------------------------
 // POST /refresh
 // ---------------------------------------------------------------------------
 void AuthController::refresh(const HttpRequestPtr& req,

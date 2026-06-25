@@ -16,6 +16,7 @@ class AuthController : public drogon::HttpController<AuthController>
     ADD_METHOD_TO(AuthController::login,         "/login",    drogon::Post);
     ADD_METHOD_TO(AuthController::logout,        "/logout",   drogon::Post);
     ADD_METHOD_TO(AuthController::refresh,       "/refresh",  drogon::Post);
+    ADD_METHOD_TO(AuthController::me,            "/me",       drogon::Get, drogon::Options, "JwtAuthFilter");
     METHOD_LIST_END
 
     void register_user(
@@ -31,6 +32,10 @@ class AuthController : public drogon::HttpController<AuthController>
         std::function<void(const drogon::HttpResponsePtr &)> &&cb);
 
     void refresh(
+        const drogon::HttpRequestPtr &req,
+        std::function<void(const drogon::HttpResponsePtr &)> &&cb);
+
+    void me(
         const drogon::HttpRequestPtr &req,
         std::function<void(const drogon::HttpResponsePtr &)> &&cb);
 };
