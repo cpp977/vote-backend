@@ -31,8 +31,8 @@ TEST_CASE("QuestionsWithCategories") {
 
 TEST_CASE("GetAnswerOptions for question 1") {
   auto resp = test_helpers::http_request(
-      "GET", "127.0.0.1", 8848, "/questions/1/answers", "",
-      "application/json", global_fixture.access_token);
+      "GET", "127.0.0.1", 8848, "/questions/1/answers", "", "application/json",
+      global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
   // Question 1 ("How many bananas do you eat per week?") has 5 answer options.
@@ -58,4 +58,62 @@ TEST_CASE("GetAnswerOptions for non-existent question returns 404") {
       "GET", "127.0.0.1", 8848, "/questions/99999/answers", "",
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 404);
+}
+
+TEST_CASE("GetQuestionsByLanguage returns only English questions") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/lang/en", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // The seed data has 50 English questions (5 per category × 10 categories).
+  CHECK(resp.json_body.size() == 50);
+
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["language"] == "en");
+  }
+}
+
+TEST_CASE("GetQuestionsByLanguage returns only German questions") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/lang/de", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // The seed data has 50 German questions (5 per category × 10 categories).
+  CHECK(resp.json_body.size() == 50);
+
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["language"] == "de");
+  }
+}
+
+TEST_CASE("GetQuestionsByLanguage for unknown language returns empty array") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/lang/fr", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.empty());
+}
+
+TEST_CASE("GetQuestionsByLanguage returns well-known English question texts") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/lang/en", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+
+  // Collect all returned texts.
+  std::vector<std::string> texts;
+  for (const auto& q : resp.json_body) {
+    texts.push_back(q["text"].get<std::string>());
+  }
+
+  // Spot-check that known English seed questions are present.
+  CHECK(std::find(texts.begin(), texts.end(),
+                  "How many bananas do you eat per week?") != texts.end());
+  CHECK(std::find(texts.begin(), texts.end(), "Do you have an own car?") !=
+        texts.end());
+  CHECK(std::find(texts.begin(), texts.end(),
+                  "How often do you exercise per week?") != texts.end());
 }

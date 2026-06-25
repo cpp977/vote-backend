@@ -160,6 +160,42 @@ void QuestionController::getAnswerOptions(
       });
 }
 
+void QuestionController::getQuestionsByLanguage(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+    const std::string& language) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  drogon::orm::Mapper<Questions> mapper(dbClient);
+  mapper.findBy(
+      drogon::orm::Criteria(Questions::Cols::_language, language),
+      [callbackPtr](const std::vector<Questions>& questions) {
+        try {
+          Json::Value arr(Json::arrayValue);
+          for (const auto& question : questions) {
+            arr.append(question.toJson());
+          }
+          (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+        } catch (const std::exception& e) {
+          LOG_ERROR << "getQuestionsByLanguage failed: " << e.what();
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (*callbackPtr)(resp);
+        }
+      },
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "getQuestionsByLanguage DB error: " << e.base().what();
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      });
+}
+
 void QuestionController::getStats(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId) {

@@ -11,6 +11,8 @@ class QuestionController : public drogon::HttpController<QuestionController> {
                 "/questions/{1}/answers", drogon::Get);
   ADD_METHOD_TO(QuestionController::getQuestionsWithCategories,
                 "/questions/with-categories", drogon::Get);
+  ADD_METHOD_TO(QuestionController::getQuestionsByLanguage,
+                "/questions/lang/{1}", drogon::Get);
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -22,4 +24,8 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void getQuestionsWithCategories(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  void getQuestionsByLanguage(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+      const std::string& language);
 };
