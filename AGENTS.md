@@ -42,7 +42,7 @@ This playbook deploys the application into rootless Podman containers via quadle
 - **Run all tests** (Release): `CXX=clang++ ctest --preset test-release`
 - **Run a single test** (Release): `CXX=clang++ ctest --preset test-release -R <TestName>`
 - **Check formatting**: `CXX=clang++ cmake --workflow --preset check-format`
-- **Auto‑format**: `CXX=clang++ cmake --workflow --preset check-format`
+- **Auto‑format**: `CXX=clang++ cmake --workflow --preset format`
 
 ## Version
 
