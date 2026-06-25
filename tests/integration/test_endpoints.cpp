@@ -28,3 +28,34 @@ TEST_CASE("QuestionsWithCategories") {
   CHECK(resp.json_body[0]["text"] == "How many bananas do you eat per week?");
   CHECK(resp.json_body[0]["category_name"] == "Food");
 }
+
+TEST_CASE("GetAnswerOptions for question 1") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/1/answers", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Question 1 ("How many bananas do you eat per week?") has 5 answer options.
+  CHECK(resp.json_body.size() == 5);
+
+  // Each element must have id, question_id, and text.
+  std::vector<std::string> expected_keys = {"id", "question_id", "text"};
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    test_helpers::check_json_has_keys(resp.json_body[i], expected_keys,
+                                      "answer[" + std::to_string(i) + "]");
+  }
+
+  // Verify the answer option texts match the seed data.
+  std::vector<std::string> expected_texts = {"0", "1-2", "3-5", "6-10",
+                                             "More than 10"};
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["text"] == expected_texts[i]);
+  }
+}
+
+TEST_CASE("GetAnswerOptions for non-existent question returns 404") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/99999/answers", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 404);
+}

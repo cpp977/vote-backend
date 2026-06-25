@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "vote-backend/models/AnswerOptions.h"
 #include "vote-backend/models/Categories.h"
 #include "vote-backend/models/Questions.h"
 
@@ -98,6 +99,60 @@ void QuestionController::getQuestionsWithCategories(
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << "getQuestionsWithCategories DB error: " << e.base().what();
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      });
+}
+
+void QuestionController::getAnswerOptions(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  drogon::orm::Mapper<Questions> mapper(dbClient);
+  mapper.findByPrimaryKey(
+      static_cast<int64_t>(questionId),
+      [dbClient, callbackPtr](Questions question) {
+        try {
+          question.getAnswerOptions(
+              dbClient,
+              [callbackPtr](const std::vector<AnswerOptions>& options) {
+                Json::Value arr(Json::arrayValue);
+                for (const auto& option : options) {
+                  arr.append(option.toJson());
+                }
+                (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+              },
+              [callbackPtr](const DrogonDbException& e) {
+                LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
+                auto resp = HttpResponse::newHttpResponse();
+                resp->setStatusCode(k500InternalServerError);
+                resp->setBody(e.base().what());
+                (*callbackPtr)(resp);
+              });
+        } catch (const std::exception& e) {
+          LOG_ERROR << "getAnswerOptions failed: " << e.what();
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (*callbackPtr)(resp);
+        }
+      },
+      [callbackPtr](const DrogonDbException& e) {
+        const drogon::orm::UnexpectedRows* s =
+            dynamic_cast<const drogon::orm::UnexpectedRows*>(&e.base());
+        if (s) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
