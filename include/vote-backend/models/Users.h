@@ -47,6 +47,9 @@ class Users
         static const std::string _username;
         static const std::string _email;
         static const std::string _password_hash;
+        static const std::string _birth_year;
+        static const std::string _gender;
+        static const std::string _nationality;
         static const std::string _created_at;
         static const std::string _updated_at;
     };
@@ -94,6 +97,23 @@ class Users
     void setPasswordHash(const std::string &pPasswordHash) noexcept;
     void setPasswordHash(std::string &&pPasswordHash) noexcept;
 
+    /**  For column birth_year  */
+    const int &getValueOfBirthYear() const noexcept;
+    const std::shared_ptr<int> &getBirthYear() const noexcept;
+    void setBirthYear(const int &pBirthYear) noexcept;
+
+    /**  For column gender  */
+    const std::string &getValueOfGender() const noexcept;
+    const std::shared_ptr<std::string> &getGender() const noexcept;
+    void setGender(const std::string &pGender) noexcept;
+    void setGender(std::string &&pGender) noexcept;
+
+    /**  For column nationality  */
+    const std::string &getValueOfNationality() const noexcept;
+    const std::shared_ptr<std::string> &getNationality() const noexcept;
+    void setNationality(const std::string &pNationality) noexcept;
+    void setNationality(std::string &&pNationality) noexcept;
+
     /**  For column created_at  */
     const ::trantor::Date &getValueOfCreatedAt() const noexcept;
     const std::shared_ptr<::trantor::Date> &getCreatedAt() const noexcept;
@@ -104,7 +124,7 @@ class Users
     const std::shared_ptr<::trantor::Date> &getUpdatedAt() const noexcept;
     void setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 6;  }
+    static size_t getColumnNumber() noexcept {  return 9;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -128,6 +148,9 @@ class Users
     std::shared_ptr<std::string> username_;
     std::shared_ptr<std::string> email_;
     std::shared_ptr<std::string> passwordHash_;
+    std::shared_ptr<int> birthYear_;
+    std::shared_ptr<std::string> gender_;
+    std::shared_ptr<std::string> nationality_;
     std::shared_ptr<::trantor::Date> createdAt_;
     std::shared_ptr<::trantor::Date> updatedAt_;
     struct MetaData
@@ -141,7 +164,7 @@ class Users
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[6]={ false };
+    bool dirtyFlag_[9]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -179,15 +202,30 @@ class Users
             sql += "password_hash,";
             ++parametersCount;
         }
+        if(dirtyFlag_[4])
+        {
+            sql += "birth_year,";
+            ++parametersCount;
+        }
+        if(dirtyFlag_[5])
+        {
+            sql += "gender,";
+            ++parametersCount;
+        }
+        if(dirtyFlag_[6])
+        {
+            sql += "nationality,";
+            ++parametersCount;
+        }
         sql += "created_at,";
         ++parametersCount;
-        if(!dirtyFlag_[4])
+        if(!dirtyFlag_[7])
         {
             needSelection=true;
         }
         sql += "updated_at,";
         ++parametersCount;
-        if(!dirtyFlag_[5])
+        if(!dirtyFlag_[8])
         {
             needSelection=true;
         }
@@ -228,11 +266,26 @@ class Users
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
         }
+        if(dirtyFlag_[5])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        if(dirtyFlag_[6])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        if(dirtyFlag_[7])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
         else
         {
             sql +="default,";
         }
-        if(dirtyFlag_[5])
+        if(dirtyFlag_[8])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

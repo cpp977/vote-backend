@@ -13,7 +13,7 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | Method | Path | Description | Authentication | Request Body | Response |
 |--------|------|-------------|----------------|--------------|----------|
 | **POST** | `/register` | Register a new user. Password is hashed with Argon2id. | No | ```json
-{ "username": "string", "email": "string", "password": "string" }
+{ "username": "string", "email": "string", "password": "string", "birth_year": 1990, "gender": "m", "nationality": "US" }
 ``` | *201 Created* – JSON with user id. Errors: 400 (invalid), 409 (user exists). |
 | **POST** | `/login` | Authenticate a user and issue JWT access + refresh tokens. | No | ```json
 { "username": "string", "password": "string" }

@@ -18,6 +18,9 @@ const std::string Users::Cols::_id = "\"id\"";
 const std::string Users::Cols::_username = "\"username\"";
 const std::string Users::Cols::_email = "\"email\"";
 const std::string Users::Cols::_password_hash = "\"password_hash\"";
+const std::string Users::Cols::_birth_year = "\"birth_year\"";
+const std::string Users::Cols::_gender = "\"gender\"";
+const std::string Users::Cols::_nationality = "\"nationality\"";
 const std::string Users::Cols::_created_at = "\"created_at\"";
 const std::string Users::Cols::_updated_at = "\"updated_at\"";
 const std::string Users::primaryKeyName = "id";
@@ -29,6 +32,9 @@ const std::vector<typename Users::MetaData> Users::metaData_ = {
     {"username", "std::string", "text", 0, 0, 0, 1},
     {"email", "std::string", "text", 0, 0, 0, 1},
     {"password_hash", "std::string", "text", 0, 0, 0, 1},
+    {"birth_year", "int", "integer", 4, 0, 0, 0},
+    {"gender", "std::string", "character", 1, 0, 0, 0},
+    {"nationality", "std::string", "character varying", 100, 0, 0, 0},
     {"created_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1},
     {"updated_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1}};
 const std::string& Users::getColumnName(size_t index) noexcept(false) {
@@ -51,6 +57,16 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
     if (!r["password_hash"].isNull()) {
       passwordHash_ =
           std::make_shared<std::string>(r["password_hash"].as<std::string>());
+    }
+    if (!r["birth_year"].isNull()) {
+      birthYear_ = std::make_shared<int>(r["birth_year"].as<int>());
+    }
+    if (!r["gender"].isNull()) {
+      gender_ = std::make_shared<std::string>(r["gender"].as<std::string>());
+    }
+    if (!r["nationality"].isNull()) {
+      nationality_ =
+          std::make_shared<std::string>(r["nationality"].as<std::string>());
     }
     if (!r["created_at"].isNull()) {
       auto timeStr = r["created_at"].as<std::string>();
@@ -92,7 +108,7 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
     }
   } else {
     size_t offset = (size_t)indexOffset;
-    if (offset + 6 > r.size()) {
+    if (offset + 9 > r.size()) {
       LOG_FATAL << "Invalid SQL result for this model";
       return;
     }
@@ -115,6 +131,18 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
     }
     index = offset + 4;
     if (!r[index].isNull()) {
+      birthYear_ = std::make_shared<int>(r[index].as<int>());
+    }
+    index = offset + 5;
+    if (!r[index].isNull()) {
+      gender_ = std::make_shared<std::string>(r[index].as<std::string>());
+    }
+    index = offset + 6;
+    if (!r[index].isNull()) {
+      nationality_ = std::make_shared<std::string>(r[index].as<std::string>());
+    }
+    index = offset + 7;
+    if (!r[index].isNull()) {
       auto timeStr = r[index].as<std::string>();
       struct tm stm;
       memset(&stm, 0, sizeof(stm));
@@ -133,7 +161,7 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
     }
-    index = offset + 5;
+    index = offset + 8;
     if (!r[index].isNull()) {
       auto timeStr = r[index].as<std::string>();
       struct tm stm;
@@ -182,8 +210,27 @@ Users::Users(const Json::Value& pJson) noexcept(false) {
           std::make_shared<std::string>(pJson["password_hash"].asString());
     }
   }
-  if (pJson.isMember("created_at")) {
+  if (pJson.isMember("birth_year")) {
     dirtyFlag_[4] = true;
+    if (!pJson["birth_year"].isNull()) {
+      birthYear_ = std::make_shared<int>(pJson["birth_year"].asInt());
+    }
+  }
+  if (pJson.isMember("gender")) {
+    dirtyFlag_[5] = true;
+    if (!pJson["gender"].isNull()) {
+      gender_ = std::make_shared<std::string>(pJson["gender"].asString());
+    }
+  }
+  if (pJson.isMember("nationality")) {
+    dirtyFlag_[6] = true;
+    if (!pJson["nationality"].isNull()) {
+      nationality_ =
+          std::make_shared<std::string>(pJson["nationality"].asString());
+    }
+  }
+  if (pJson.isMember("created_at")) {
+    dirtyFlag_[7] = true;
     if (!pJson["created_at"].isNull()) {
       auto timeStr = pJson["created_at"].asString();
       struct tm stm;
@@ -205,7 +252,7 @@ Users::Users(const Json::Value& pJson) noexcept(false) {
     }
   }
   if (pJson.isMember("updated_at")) {
-    dirtyFlag_[5] = true;
+    dirtyFlag_[8] = true;
     if (!pJson["updated_at"].isNull()) {
       auto timeStr = pJson["updated_at"].asString();
       struct tm stm;
@@ -253,8 +300,27 @@ void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
           std::make_shared<std::string>(pJson["password_hash"].asString());
     }
   }
-  if (pJson.isMember("created_at")) {
+  if (pJson.isMember("birth_year")) {
     dirtyFlag_[4] = true;
+    if (!pJson["birth_year"].isNull()) {
+      birthYear_ = std::make_shared<int>(pJson["birth_year"].asInt());
+    }
+  }
+  if (pJson.isMember("gender")) {
+    dirtyFlag_[5] = true;
+    if (!pJson["gender"].isNull()) {
+      gender_ = std::make_shared<std::string>(pJson["gender"].asString());
+    }
+  }
+  if (pJson.isMember("nationality")) {
+    dirtyFlag_[6] = true;
+    if (!pJson["nationality"].isNull()) {
+      nationality_ =
+          std::make_shared<std::string>(pJson["nationality"].asString());
+    }
+  }
+  if (pJson.isMember("created_at")) {
+    dirtyFlag_[7] = true;
     if (!pJson["created_at"].isNull()) {
       auto timeStr = pJson["created_at"].asString();
       struct tm stm;
@@ -276,7 +342,7 @@ void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
     }
   }
   if (pJson.isMember("updated_at")) {
-    dirtyFlag_[5] = true;
+    dirtyFlag_[8] = true;
     if (!pJson["updated_at"].isNull()) {
       auto timeStr = pJson["updated_at"].asString();
       struct tm stm;
@@ -365,6 +431,53 @@ void Users::setPasswordHash(std::string&& pPasswordHash) noexcept {
   dirtyFlag_[3] = true;
 }
 
+const int& Users::getValueOfBirthYear() const noexcept {
+  static const int defaultValue = int();
+  if (birthYear_) return *birthYear_;
+  return defaultValue;
+}
+const std::shared_ptr<int>& Users::getBirthYear() const noexcept {
+  return birthYear_;
+}
+void Users::setBirthYear(const int& pBirthYear) noexcept {
+  birthYear_ = std::make_shared<int>(pBirthYear);
+  dirtyFlag_[4] = true;
+}
+
+const std::string& Users::getValueOfGender() const noexcept {
+  static const std::string defaultValue = std::string();
+  if (gender_) return *gender_;
+  return defaultValue;
+}
+const std::shared_ptr<std::string>& Users::getGender() const noexcept {
+  return gender_;
+}
+void Users::setGender(const std::string& pGender) noexcept {
+  gender_ = std::make_shared<std::string>(pGender);
+  dirtyFlag_[5] = true;
+}
+void Users::setGender(std::string&& pGender) noexcept {
+  gender_ = std::make_shared<std::string>(std::move(pGender));
+  dirtyFlag_[5] = true;
+}
+
+const std::string& Users::getValueOfNationality() const noexcept {
+  static const std::string defaultValue = std::string();
+  if (nationality_) return *nationality_;
+  return defaultValue;
+}
+const std::shared_ptr<std::string>& Users::getNationality() const noexcept {
+  return nationality_;
+}
+void Users::setNationality(const std::string& pNationality) noexcept {
+  nationality_ = std::make_shared<std::string>(pNationality);
+  dirtyFlag_[6] = true;
+}
+void Users::setNationality(std::string&& pNationality) noexcept {
+  nationality_ = std::make_shared<std::string>(std::move(pNationality));
+  dirtyFlag_[6] = true;
+}
+
 const ::trantor::Date& Users::getValueOfCreatedAt() const noexcept {
   static const ::trantor::Date defaultValue = ::trantor::Date();
   if (createdAt_) return *createdAt_;
@@ -375,7 +488,7 @@ const std::shared_ptr<::trantor::Date>& Users::getCreatedAt() const noexcept {
 }
 void Users::setCreatedAt(const ::trantor::Date& pCreatedAt) noexcept {
   createdAt_ = std::make_shared<::trantor::Date>(pCreatedAt);
-  dirtyFlag_[4] = true;
+  dirtyFlag_[7] = true;
 }
 
 const ::trantor::Date& Users::getValueOfUpdatedAt() const noexcept {
@@ -388,14 +501,15 @@ const std::shared_ptr<::trantor::Date>& Users::getUpdatedAt() const noexcept {
 }
 void Users::setUpdatedAt(const ::trantor::Date& pUpdatedAt) noexcept {
   updatedAt_ = std::make_shared<::trantor::Date>(pUpdatedAt);
-  dirtyFlag_[5] = true;
+  dirtyFlag_[8] = true;
 }
 
 void Users::updateId(const uint64_t id) {}
 
 const std::vector<std::string>& Users::insertColumns() noexcept {
   static const std::vector<std::string> inCols = {
-      "username", "email", "password_hash", "created_at", "updated_at"};
+      "username", "email",       "password_hash", "birth_year",
+      "gender",   "nationality", "created_at",    "updated_at"};
   return inCols;
 }
 
@@ -422,13 +536,34 @@ void Users::outputArgs(drogon::orm::internal::SqlBinder& binder) const {
     }
   }
   if (dirtyFlag_[4]) {
+    if (getBirthYear()) {
+      binder << getValueOfBirthYear();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[5]) {
+    if (getGender()) {
+      binder << getValueOfGender();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[6]) {
+    if (getNationality()) {
+      binder << getValueOfNationality();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[7]) {
     if (getCreatedAt()) {
       binder << getValueOfCreatedAt();
     } else {
       binder << nullptr;
     }
   }
-  if (dirtyFlag_[5]) {
+  if (dirtyFlag_[8]) {
     if (getUpdatedAt()) {
       binder << getValueOfUpdatedAt();
     } else {
@@ -453,6 +588,15 @@ const std::vector<std::string> Users::updateColumns() const {
   }
   if (dirtyFlag_[5]) {
     ret.push_back(getColumnName(5));
+  }
+  if (dirtyFlag_[6]) {
+    ret.push_back(getColumnName(6));
+  }
+  if (dirtyFlag_[7]) {
+    ret.push_back(getColumnName(7));
+  }
+  if (dirtyFlag_[8]) {
+    ret.push_back(getColumnName(8));
   }
   return ret;
 }
@@ -480,13 +624,34 @@ void Users::updateArgs(drogon::orm::internal::SqlBinder& binder) const {
     }
   }
   if (dirtyFlag_[4]) {
+    if (getBirthYear()) {
+      binder << getValueOfBirthYear();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[5]) {
+    if (getGender()) {
+      binder << getValueOfGender();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[6]) {
+    if (getNationality()) {
+      binder << getValueOfNationality();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[7]) {
     if (getCreatedAt()) {
       binder << getValueOfCreatedAt();
     } else {
       binder << nullptr;
     }
   }
-  if (dirtyFlag_[5]) {
+  if (dirtyFlag_[8]) {
     if (getUpdatedAt()) {
       binder << getValueOfUpdatedAt();
     } else {
@@ -513,6 +678,21 @@ Json::Value Users::toJson() const {
     ret["email"] = Json::Value();
   }
   // NOTE: password_hash is intentionally excluded from JSON serialization
+  if (getBirthYear()) {
+    ret["birth_year"] = getValueOfBirthYear();
+  } else {
+    ret["birth_year"] = Json::Value();
+  }
+  if (getGender()) {
+    ret["gender"] = getValueOfGender();
+  } else {
+    ret["gender"] = Json::Value();
+  }
+  if (getNationality()) {
+    ret["nationality"] = getValueOfNationality();
+  } else {
+    ret["nationality"] = Json::Value();
+  }
   if (getCreatedAt()) {
     ret["created_at"] = getCreatedAt()->toDbStringLocal();
   } else {
@@ -554,6 +734,18 @@ bool Users::validateJsonForCreation(const Json::Value& pJson,
     err = "The password_hash column cannot be null";
     return false;
   }
+  if (pJson.isMember("birth_year")) {
+    if (!validJsonOfField(4, "birth_year", pJson["birth_year"], err, true))
+      return false;
+  }
+  if (pJson.isMember("gender")) {
+    if (!validJsonOfField(5, "gender", pJson["gender"], err, true))
+      return false;
+  }
+  if (pJson.isMember("nationality")) {
+    if (!validJsonOfField(6, "nationality", pJson["nationality"], err, true))
+      return false;
+  }
   return true;
 }
 bool Users::validateJsonForUpdate(const Json::Value& pJson, std::string& err) {
@@ -573,6 +765,18 @@ bool Users::validateJsonForUpdate(const Json::Value& pJson, std::string& err) {
   if (pJson.isMember("password_hash")) {
     if (!validJsonOfField(3, "password_hash", pJson["password_hash"], err,
                           false))
+      return false;
+  }
+  if (pJson.isMember("birth_year")) {
+    if (!validJsonOfField(4, "birth_year", pJson["birth_year"], err, false))
+      return false;
+  }
+  if (pJson.isMember("gender")) {
+    if (!validJsonOfField(5, "gender", pJson["gender"], err, false))
+      return false;
+  }
+  if (pJson.isMember("nationality")) {
+    if (!validJsonOfField(6, "nationality", pJson["nationality"], err, false))
       return false;
   }
   return true;
@@ -619,6 +823,41 @@ bool Users::validJsonOfField(size_t index, const std::string& fieldName,
       if (pJson.isNull()) {
         err = "The " + fieldName + " column cannot be null";
         return false;
+      }
+      if (!pJson.isString()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      break;
+    case 4:
+      if (pJson.isNull()) {
+        // Optional field
+        return true;
+      }
+      if (!pJson.isInt()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      break;
+    case 5:
+      if (pJson.isNull()) {
+        // Optional field
+        return true;
+      }
+      if (!pJson.isString()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      if (pJson.asString() != "m" && pJson.asString() != "w" &&
+          pJson.asString() != "d") {
+        err = "gender must be one of 'm', 'w', 'd'";
+        return false;
+      }
+      break;
+    case 6:
+      if (pJson.isNull()) {
+        // Optional field
+        return true;
       }
       if (!pJson.isString()) {
         err = "Type error in the " + fieldName + " field";

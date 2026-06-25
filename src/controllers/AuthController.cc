@@ -135,6 +135,24 @@ void AuthController::register_user(
   std::string email = (*json)["email"].asString();
   std::string password = (*json)["password"].asString();
 
+  // Optional fields
+  bool has_birth_year =
+      (*json).isMember("birth_year") && !(*json)["birth_year"].isNull();
+  bool has_gender = (*json).isMember("gender") && !(*json)["gender"].isNull();
+  bool has_nationality =
+      (*json).isMember("nationality") && !(*json)["nationality"].isNull();
+
+  int birth_year = has_birth_year ? (*json)["birth_year"].asInt() : 0;
+  std::string gender = has_gender ? (*json)["gender"].asString() : "";
+  std::string nationality =
+      has_nationality ? (*json)["nationality"].asString() : "";
+
+  // Validate gender if provided
+  if (has_gender && gender != "m" && gender != "w" && gender != "d") {
+    send_error(cb, "gender must be one of 'm', 'w', 'd'", k400BadRequest);
+    return;
+  }
+
   // Basic validation
   if (username.empty() || email.empty() || password.empty()) {
     send_error(cb, "username, email, and password are required",
@@ -152,7 +170,9 @@ void AuthController::register_user(
   // Check for existing user (username or email)
   db->execSqlAsync(
       "SELECT id FROM users WHERE username = $1 OR email = $2 LIMIT 1",
-      [cb, db, username, email, password](const drogon::orm::Result& r) {
+      [cb, db, username, email, password, has_birth_year, birth_year,
+       has_gender, gender, has_nationality,
+       nationality](const drogon::orm::Result& r) {
         if (r.size() > 0) {
           send_error(cb, "username or email already exists", k409Conflict);
           return;
@@ -168,30 +188,240 @@ void AuthController::register_user(
           return;
         }
 
-        db->execSqlAsync(
-            "INSERT INTO users (username, email, password_hash) "
-            "VALUES ($1, $2, $3) RETURNING id, username, email, created_at",
-            [cb](const drogon::orm::Result& r2) {
-              if (r2.size() == 0) {
-                send_error(cb, "Failed to create user",
+        if (has_birth_year && has_gender && has_nationality) {
+          // All optional fields present
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, birth_year, "
+              "gender, nationality) "
+              "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, email, "
+              "birth_year, gender, nationality, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["birth_year"] = row["birth_year"].as<int>();
+                user["gender"] = row["gender"].as<std::string>();
+                user["nationality"] = row["nationality"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
                            k500InternalServerError);
-                return;
-              }
-              const auto& row = r2[0];
-              Json::Value user;
-              user["id"] = Json::Int64(row["id"].as<int64_t>());
-              user["username"] = row["username"].as<std::string>();
-              user["email"] = row["email"].as<std::string>();
-              user["created_at"] = row["created_at"].as<std::string>();
-              auto resp = HttpResponse::newHttpJsonResponse(user);
-              resp->setStatusCode(k201Created);
-              cb(resp);
-            },
-            [cb](const drogon::orm::DrogonDbException& e) {
-              send_error(cb, std::string("Database error: ") + e.base().what(),
-                         k500InternalServerError);
-            },
-            username, email, pw_hash);
+              },
+              username, email, pw_hash, birth_year, gender, nationality);
+        } else if (has_birth_year && has_gender) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, birth_year, "
+              "gender) "
+              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
+              "birth_year, gender, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["birth_year"] = row["birth_year"].as<int>();
+                user["gender"] = row["gender"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, birth_year, gender);
+        } else if (has_birth_year && has_nationality) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, birth_year, "
+              "nationality) "
+              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
+              "birth_year, nationality, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["birth_year"] = row["birth_year"].as<int>();
+                user["nationality"] = row["nationality"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, birth_year, nationality);
+        } else if (has_gender && has_nationality) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, gender, "
+              "nationality) "
+              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
+              "gender, nationality, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["gender"] = row["gender"].as<std::string>();
+                user["nationality"] = row["nationality"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, gender, nationality);
+        } else if (has_birth_year) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, birth_year) "
+              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, "
+              "birth_year, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["birth_year"] = row["birth_year"].as<int>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, birth_year);
+        } else if (has_gender) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, gender) "
+              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, gender, "
+              "created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["gender"] = row["gender"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, gender);
+        } else if (has_nationality) {
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash, nationality) "
+              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, "
+              "nationality, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["nationality"] = row["nationality"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash, nationality);
+        } else {
+          // No optional fields
+          db->execSqlAsync(
+              "INSERT INTO users (username, email, password_hash) "
+              "VALUES ($1, $2, $3) RETURNING id, username, email, created_at",
+              [cb](const drogon::orm::Result& r2) {
+                if (r2.size() == 0) {
+                  send_error(cb, "Failed to create user",
+                             k500InternalServerError);
+                  return;
+                }
+                const auto& row = r2[0];
+                Json::Value user;
+                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["username"] = row["username"].as<std::string>();
+                user["email"] = row["email"].as<std::string>();
+                user["created_at"] = row["created_at"].as<std::string>();
+                auto resp = HttpResponse::newHttpJsonResponse(user);
+                resp->setStatusCode(k201Created);
+                cb(resp);
+              },
+              [cb](const drogon::orm::DrogonDbException& e) {
+                send_error(cb,
+                           std::string("Database error: ") + e.base().what(),
+                           k500InternalServerError);
+              },
+              username, email, pw_hash);
+        }
       },
       [cb](const drogon::orm::DrogonDbException& e) {
         send_error(cb, std::string("Database error: ") + e.base().what(),

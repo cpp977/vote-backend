@@ -148,11 +148,17 @@ inline std::string
 authenticate(const std::string& host, unsigned short port,
               const std::string& username = "testuser",
               const std::string& email = "test@example.com",
-              const std::string& password = "password123") {
+              const std::string& password = "password123",
+              int birth_year = 1990,
+              const std::string& gender = "m",
+              const std::string& nationality = "US") {
     // 1. Register (tolerate 409 – user may already exist).
     nlohmann::json reg_payload = {{"username", username},
                                   {"email", email},
-                                  {"password", password}};
+                                  {"password", password},
+                                  {"birth_year", birth_year},
+                                  {"gender", gender},
+                                  {"nationality", nationality}};
     auto reg_resp = http_request("POST", host, port, "/register",
                                   reg_payload.dump());
     if (reg_resp.status != 201 && reg_resp.status != 409) {
