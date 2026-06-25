@@ -4,6 +4,8 @@
   "dependencies": [
     "fmt",
     "boost-config",
+    "boost-system",
+    "boost-beast",
     {
       "name": "drogon",
       "features": [
