@@ -12,7 +12,7 @@
 #   4. Starts and enables the database and backend services
 
 - name: Deploy vote-backend locally (Podman)
-  hosts: dev
+  hosts: localhost
   gather_facts: true
 
   vars:
