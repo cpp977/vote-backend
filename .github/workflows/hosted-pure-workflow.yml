@@ -51,13 +51,10 @@ jobs:
       - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
         run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
         shell: bash
-        
-      - name: Install Ansible
-        id: ansible
-        uses: rishabhc32/install-ansible
+      - name: "Install Ansible"
+        uses: alex-oleshkevich/setup-ansible@v1.0.1
         with:
-          python-version: "3.14"
-          ansible-package: "ansible==12.0.0"
+          version: "14.1.0"
 
       # Setup the build machine with the most recent versions of CMake and Ninja. Both are cached if not already: on subsequent runs both will be quickly restored from GitHub cache service.
       - uses: lukka/get-cmake@latest

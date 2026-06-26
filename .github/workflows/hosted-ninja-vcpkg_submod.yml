@@ -43,6 +43,11 @@ jobs:
         with:
           submodules: true
 
+      - name: "Install Ansible"
+        uses: alex-oleshkevich/setup-ansible@v1.0.1
+        with:
+          version: "14.1.0"
+
       - uses: lukka/get-cmake@latest
 
       - name: Restore from cache and setup vcpkg executable and data files.
