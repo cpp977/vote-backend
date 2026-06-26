@@ -6,7 +6,7 @@
 #   podman run --name drogon-postgres --rm \
 #     -e POSTGRES_PASSWORD=secret \
 #     -e POSTGRES_DB=vote \
-#     -v /home/peschke/code/private/Vote-Backend/sql:/docker-entrypoint-initdb.d \
+#     -v ~/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d \
 #     -p 5432:5432 \
 #     -d postgres:18
 
@@ -15,7 +15,7 @@ ContainerName=drogon-postgres
 Image=postgres:18
 Environment=POSTGRES_PASSWORD=secret
 Environment=POSTGRES_DB=vote
-Volume=%h/code/private/vote-backend/sql:/docker-entrypoint-initdb.d:Z
+Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
 Network=vote.network
 PublishPort=5432:5432
 

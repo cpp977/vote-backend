@@ -4,6 +4,13 @@
 # Builds the container image, installs quadlets, and starts
 # rootless Podman systemd services for the app and database.
 
+- name: Copy SQL init scripts to a portable location
+  ansible.builtin.copy:
+    src: "{{ vote_backend_project_root }}/sql/"
+    dest: "{{ ansible_env.HOME }}/.local/share/vote-backend/sql/"
+    mode: "0644"
+    directory_mode: "0755"
+
 - name: Build vote-backend container image
   containers.podman.podman_image:
     name: "{{ vote_backend_image_name }}"
