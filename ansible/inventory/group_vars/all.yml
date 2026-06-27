@@ -12,5 +12,5 @@ vote_backend_test_preset_release: test-release
 # Deployment – local (Podman quadlets)
 vote_backend_image_name: localhost/vote-backend
 vote_backend_image_tag: "{{ lookup('file', vote_backend_project_root ~ '/version.txt') | trim }}"
-vote_backend_quadlet_dir: "{{ lookup('env', 'HOME') }}/code/private/vote-backend/quadlets"
+vote_backend_quadlet_dir: "{{ vote_backend_project_root }}/quadlets"
 vote_backend_uid: "{{ ansible_user_uid | default(1000) }}"
