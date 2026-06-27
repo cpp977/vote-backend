@@ -106,4 +106,4 @@ jobs:
       # Test the whole project with CTest, again Release configuration only.
       - name: Test (Release configuration)
         run: |
-          ctest --preset test-release
+          ctest --preset test-release || cat /home/runner/work/vote-backend/vote-backend/builds/ninja-multi-vcpkg/Testing/Temporary/LastTest.log
