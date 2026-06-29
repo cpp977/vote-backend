@@ -27,6 +27,7 @@ void QuestionController::getQuestionsWithCategories(
 
   std::string sql =
       "SELECT q.id, q.text, q.language, q.category_id, "
+      "       q.min_age, q.created_at, "
       "       c.name AS category_name "
       "FROM questions q "
       "JOIN categories c ON q.category_id = c.id";
@@ -45,6 +46,9 @@ void QuestionController::getQuestionsWithCategories(
             q["category_id"] = Json::Value(
                 static_cast<Json::Int64>(row.at("category_id").as<long long>()));
             q["category_name"] = row.at("category_name").as<std::string>();
+            q["min_age"] = Json::Value(
+                static_cast<Json::Int64>(row.at("min_age").as<long long>()));
+            q["created_at"] = row.at("created_at").as<std::string>();
             arr.append(q);
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
