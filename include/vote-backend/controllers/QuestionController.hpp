@@ -6,13 +6,16 @@ class QuestionController : public drogon::HttpController<QuestionController> {
  public:
   METHOD_LIST_BEGIN
   ADD_METHOD_TO(QuestionController::getStats, "/questions/{1}/stats",
-                drogon::Get);
+                drogon::Get, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getAnswerOptions,
-                "/questions/{1}/answers", drogon::Get);
+                "/questions/{1}/answers", drogon::Get, drogon::Options,
+                "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getQuestionsWithCategories,
-                "/questions/with-categories", drogon::Get);
+                "/questions/with-categories", drogon::Get, drogon::Options,
+                "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getQuestionsByLanguage,
-                "/questions/lang/{1}", drogon::Get);
+                "/questions/lang/{1}", drogon::Get, drogon::Options,
+                "JwtAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
