@@ -14,7 +14,8 @@ GlobalTestFixture::GlobalTestFixture() {
   std::string roles_path = base + "/ansible/roles";
   run_ansible_playbook(playbook, roles_path);
   wait_for_http("127.0.0.1", 8848);
-  access_token = authenticate("127.0.0.1", 8848);
+  // Login as the pre-seeded user (Jim / 12345678) — no registration needed.
+  access_token = login_only("127.0.0.1", 8848, "Jim", "12345678");
 }
 
 GlobalTestFixture::~GlobalTestFixture() {

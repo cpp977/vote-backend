@@ -187,6 +187,30 @@ authenticate(const std::string& host, unsigned short port,
 }
 
 // ---------------------------------------------------------------------------
+// Login-only helper for pre-seeded users (no registration attempt)
+// ---------------------------------------------------------------------------
+inline std::string
+login_only(const std::string& host, unsigned short port,
+            const std::string& username, const std::string& password) {
+    nlohmann::json login_payload = {{"username", username},
+                                     {"password", password}};
+    auto login_resp = http_request("POST", host, port, "/login",
+                                    login_payload.dump());
+    if (login_resp.status != 200) {
+        throw std::runtime_error(
+            "Login failed with status " + std::to_string(login_resp.status) +
+            ": " + login_resp.raw_body);
+    }
+
+    std::string access_token =
+        login_resp.json_body["access_token"].get<std::string>();
+    if (access_token.empty()) {
+        throw std::runtime_error("Login response missing access_token");
+    }
+    return access_token;
+}
+
+// ---------------------------------------------------------------------------
 // Convenience macro for simple endpoint tests
 // ---------------------------------------------------------------------------
 #define ENDPOINT_TEST(NAME, METHOD, URL, EXPECTED_STATUS, EXPECTED_JSON)      \
