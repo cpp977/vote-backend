@@ -4,6 +4,19 @@
 # Builds the container image, installs quadlets, and starts
 # rootless Podman systemd services for the app and database.
 
+- name: Ensure vote-backend config directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.config/vote-backend"
+    state: directory
+    mode: "0755"
+
+- name: Copy config.json to user config directory
+  ansible.builtin.copy:
+    src: "{{ vote_backend_project_root }}/config.json"
+    dest: "{{ ansible_env.HOME }}/.config/vote-backend/config.json"
+    mode: "0644"
+    force: true
+
 - name: Copy SQL init scripts to a portable location
   ansible.builtin.copy:
     src: "{{ vote_backend_project_root }}/sql/"
