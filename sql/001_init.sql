@@ -29,6 +29,12 @@ CREATE TABLE questions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Enable pg_trgm extension for efficient LIKE/ILIKE searches
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Create GIN trigram index on questions.text for efficient pattern matching
+CREATE INDEX ix_questions_text_trigram
+ON questions USING GIN (text gin_trgm_ops);
 
 CREATE TABLE answer_options (
     id BIGSERIAL PRIMARY KEY,

@@ -16,6 +16,9 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::getQuestionsByLanguage,
                 "/questions/lang/{1}", drogon::Get, drogon::Options,
                 "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::searchQuestions,
+                "/questions/search", drogon::Get, drogon::Options,
+                "JwtAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -31,4 +34,7 @@ class QuestionController : public drogon::HttpController<QuestionController> {
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
       const std::string& language);
+  void searchQuestions(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
 };

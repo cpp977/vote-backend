@@ -43,8 +43,8 @@ void QuestionController::getQuestionsWithCategories(
                 static_cast<Json::Int64>(row.at("id").as<long long>()));
             q["text"] = row.at("text").as<std::string>();
             q["language"] = row.at("language").as<std::string>();
-            q["category_id"] = Json::Value(
-                static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+            q["category_id"] = Json::Value(static_cast<Json::Int64>(
+                row.at("category_id").as<long long>()));
             q["category_name"] = row.at("category_name").as<std::string>();
             q["min_age"] = Json::Value(
                 static_cast<Json::Int64>(row.at("min_age").as<long long>()));
@@ -61,13 +61,67 @@ void QuestionController::getQuestionsWithCategories(
         }
       },
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getQuestionsWithCategories DB error: "
-                  << e.base().what();
+        LOG_ERROR << "getQuestionsWithCategories DB error: " << e.base().what();
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
         (*callbackPtr)(resp);
       });
+}
+
+void QuestionController::searchQuestions(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  // Get search term from query parameter
+  std::string searchTerm = req->getParameter("q");
+
+  std::string sql =
+      "SELECT q.id, q.text, q.language, q.category_id, "
+      "       c.name AS category_name, q.created_at "
+      "FROM questions q "
+      "JOIN categories c ON q.category_id = c.id "
+      "WHERE q.text ILIKE $1 "
+      "ORDER BY q.created_at DESC";
+
+  dbClient->execSqlAsync(
+      sql,
+      [callbackPtr](const Result& r) {
+        try {
+          Json::Value arr(Json::arrayValue);
+          for (const auto& row : r) {
+            Json::Value q;
+            q["id"] = Json::Value(
+                static_cast<Json::Int64>(row.at("id").as<long long>()));
+            q["text"] = row.at("text").as<std::string>();
+            q["language"] = row.at("language").as<std::string>();
+            q["category_id"] = Json::Value(static_cast<Json::Int64>(
+                row.at("category_id").as<long long>()));
+            q["category_name"] = row.at("category_name").as<std::string>();
+            q["created_at"] = row.at("created_at").as<std::string>();
+            arr.append(q);
+          }
+          (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+        } catch (const std::exception& e) {
+          LOG_ERROR << "searchQuestions failed: " << e.what();
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (*callbackPtr)(resp);
+        }
+      },
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "searchQuestions DB error: " << e.base().what();
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      },
+      "%" + searchTerm + "%");
 }
 
 void QuestionController::getAnswerOptions(
@@ -151,8 +205,8 @@ void QuestionController::getQuestionsByLanguage(
                 static_cast<Json::Int64>(row.at("id").as<long long>()));
             q["text"] = row.at("text").as<std::string>();
             q["language"] = row.at("language").as<std::string>();
-            q["category_id"] = Json::Value(
-                static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+            q["category_id"] = Json::Value(static_cast<Json::Int64>(
+                row.at("category_id").as<long long>()));
             q["category_name"] = row.at("category_name").as<std::string>();
             arr.append(q);
           }
