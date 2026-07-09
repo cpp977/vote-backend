@@ -33,6 +33,9 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 { "answer": "string" }
 ``` | *201 Created* – answer record. |
 | **GET** | `/questions/{id}/results` | Get aggregated results for a question. | Bearer access token | – | *200 OK* – tally per answer. |
+| **POST** | `/questions/restSearch` | Search/filter questions via a JSON body. Filters: `language` (exact match), `search` (case‑insensitive substring on the question text), `categoryIds` (match any of the given category ids), `age` (question `min_age` >= value). Supports pagination via `offset` (default 0) and `limit` (default 50, max 1000). | Bearer access token | ```json
+{ "language": "string", "search": "string", "categoryIds": [1, 2, 3], "age": 0, "offset": 0, "limit": 50 }
+``` | *200 OK* – array of question objects (`id`, `text`, `language`, `category_id`, `category_name`). Errors: 400 (invalid JSON body), 500 (DB error). |
 
 ## Authentication Details
 
