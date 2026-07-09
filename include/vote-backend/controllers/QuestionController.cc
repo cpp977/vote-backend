@@ -332,23 +332,47 @@ struct FilterDef {
   std::string column;   // trusted, server-defined column name
   FilterKind kind;
   std::string castSuffix = "";  // e.g. "::int", "::timestamp"
+  std::string nullValue = "";   // string repr. of the empty value; the WHERE
+                                // clause is skipped when the value matches it
 };
 
 // Server-defined, not derived from user input -> safe from injection
 static const std::vector<FilterDef> filters = {
-    {.jsonKey = "language", .column = "language", .kind = FilterKind::Equal},
+    {.jsonKey = "language",
+     .column = "language",
+     .kind = FilterKind::Equal,
+     .nullValue = ""},  // default: empty string -> skip WHERE clause
     {.jsonKey = "search",
      .column = "text",
-     .kind = FilterKind::ILike},  // trigram-indexed column
+     .kind = FilterKind::ILike,  // trigram-indexed column
+     .nullValue = ""},           // default: empty string -> skip WHERE clause
     {.jsonKey = "categoryIds",
      .column = "category_id",
      .kind = FilterKind::InArray,
-     .castSuffix = "::int[]"},
+     .castSuffix = "::int[]",
+     .nullValue = "[]"},  // default: empty list -> skip WHERE clause
 };
+
+// Returns a canonical string representation of a filter value. Strings are
+// returned verbatim; other JSON values (e.g. arrays) are serialized compactly
+// so that an empty array becomes "[]".
+static std::string filterValueRepr(const Json::Value& value) {
+  if (value.isString()) {
+    return value.asString();
+  }
+  Json::StreamWriterBuilder builder;
+  builder["indentation"] = "";
+  return Json::writeString(builder, value);
+}
 
 void appendFilter(const FilterDef& f, const Json::Value& value,
                   std::string& sql, std::vector<std::string>& params,
                   int& idx) {
+  // Skip the WHERE clause when the value equals the filter's null (empty) value.
+  if (filterValueRepr(value) == f.nullValue) {
+    return;
+  }
+
   switch (f.kind) {
     case FilterKind::Equal:
       sql += fmt::format(" AND {} = ${}{}", f.column, idx++, f.castSuffix);
@@ -455,9 +479,17 @@ void QuestionController::restSearchQuestions(
   int idx = 1;
 
   for (const auto& f : filters) {
+    Json::Value value;
     if (json->isMember(f.jsonKey)) {
-      appendFilter(f, (*json)[f.jsonKey], sql, params, idx);
+      value = (*json)[f.jsonKey];
+    } else if (f.kind == FilterKind::InArray) {
+      // Default for array filters is an empty list; appendFilter() will skip it.
+      value = Json::Value(Json::arrayValue);
+    } else {
+      // Default for scalar filters is the empty value; appendFilter() skips it.
+      value = Json::Value(f.nullValue);
     }
+    appendFilter(f, value, sql, params, idx);
   }
   
   // Add ORDER BY to ensure consistent pagination
