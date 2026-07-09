@@ -353,7 +353,7 @@ static const std::vector<FilterDef> filters = {
      .nullValue = "[]"},  // default: empty list -> skip WHERE clause
     {.jsonKey = "age",
      .column = "min_age",
-     .kind = FilterKind::GreaterEq,
+     .kind = FilterKind::LessEq,
      .castSuffix = "::int",
      .nullValue = "0"},  // default: "0" -> skip WHERE clause
 };
