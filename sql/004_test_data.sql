@@ -46,3 +46,17 @@ VALUES (3, 11, '{"gender": "f"}');
 
 INSERT INTO user_answers (question_id, answer_id, tags)
 VALUES (3, 12, '{"gender": "m"}');
+
+-- ---------------------------------------------------------------------------
+-- Minimum-age overrides for the age filter of POST /questions/restSearch
+--   The seed data (003_seed_data.sql) leaves every question at the schema
+--   default min_age = 0, so without the overrides below the age filter could
+--   only ever return either everything (age = 0) or nothing (age > 0). We raise
+--   min_age on a small, well-known subset of *existing* questions (no new rows,
+--   so the pagination tests that assume exactly 100 questions stay valid) so
+--   the GreaterEq behaviour of the filter can be exercised deterministically:
+--     id 1, 3, 5 -> min_age 18   (all English)
+--     id 7, 9    -> min_age 21   (all English)
+-- ---------------------------------------------------------------------------
+UPDATE questions SET min_age = 18 WHERE id IN (1, 3, 5);
+UPDATE questions SET min_age = 21 WHERE id IN (7, 9);

@@ -351,6 +351,11 @@ static const std::vector<FilterDef> filters = {
      .kind = FilterKind::InArray,
      .castSuffix = "::int[]",
      .nullValue = "[]"},  // default: empty list -> skip WHERE clause
+    {.jsonKey = "age",
+     .column = "min_age",
+     .kind = FilterKind::GreaterEq,
+     .castSuffix = "::int",
+     .nullValue = "0"},  // default: "0" -> skip WHERE clause
 };
 
 // Returns a canonical string representation of a filter value. Strings are
@@ -368,7 +373,8 @@ static std::string filterValueRepr(const Json::Value& value) {
 void appendFilter(const FilterDef& f, const Json::Value& value,
                   std::string& sql, std::vector<std::string>& params,
                   int& idx) {
-  // Skip the WHERE clause when the value equals the filter's null (empty) value.
+  // Skip the WHERE clause when the value equals the filter's null (empty)
+  // value.
   if (filterValueRepr(value) == f.nullValue) {
     return;
   }
@@ -444,7 +450,7 @@ void QuestionController::restSearchQuestions(
   // Extract pagination parameters with defaults
   int offset = 0;
   int limit = 50;
-  
+
   if (json->isMember("offset")) {
     try {
       offset = (*json)["offset"].asInt();
@@ -455,7 +461,7 @@ void QuestionController::restSearchQuestions(
       LOG_WARN << "Invalid offset value, using default (0): " << e.what();
     }
   }
-  
+
   if (json->isMember("limit")) {
     try {
       limit = (*json)["limit"].asInt();
@@ -483,7 +489,8 @@ void QuestionController::restSearchQuestions(
     if (json->isMember(f.jsonKey)) {
       value = (*json)[f.jsonKey];
     } else if (f.kind == FilterKind::InArray) {
-      // Default for array filters is an empty list; appendFilter() will skip it.
+      // Default for array filters is an empty list; appendFilter() will skip
+      // it.
       value = Json::Value(Json::arrayValue);
     } else {
       // Default for scalar filters is the empty value; appendFilter() skips it.
@@ -491,10 +498,10 @@ void QuestionController::restSearchQuestions(
     }
     appendFilter(f, value, sql, params, idx);
   }
-  
+
   // Add ORDER BY to ensure consistent pagination
   sql += " ORDER BY q.created_at DESC";
-  
+
   // Add LIMIT and OFFSET for pagination
   if (limit > 0) {
     sql += fmt::format(" LIMIT ${}", idx++);
@@ -504,7 +511,7 @@ void QuestionController::restSearchQuestions(
     sql += fmt::format(" OFFSET ${}", idx++);
     params.push_back(std::to_string(offset));
   }
-  
+
   LOG_DEBUG << fmt::format("SQL: {} | params: [{}]", sql,
                            fmt::join(params, ", "));
 

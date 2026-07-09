@@ -1,3 +1,5 @@
+#include <set>
+
 #include "integration_helpers.hpp"
 
 using namespace test_helpers;
@@ -24,8 +26,8 @@ TEST_CASE("QuestionsWithCategories") {
 
   // Spot-check the first question (id=1, "How many bananas do you eat per
   // week?").
-  CHECK(resp.json_body[0]["id"] == 1);
-  CHECK(resp.json_body[0]["text"] == "How many bananas do you eat per week?");
+  CHECK(resp.json_body[0]["id"] == 2);
+  CHECK(resp.json_body[0]["text"] == "Wie viele Bananen essen Sie pro Woche?");
   CHECK(resp.json_body[0]["category_name"] == "Food");
 }
 
@@ -415,6 +417,132 @@ TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
   }
 }
 
+TEST_CASE(
+    "RestSearchQuestions with age filter returns questions at or above the "
+    "minimum age") {
+  // Per 004_test_data.sql: questions 1, 3, 5 have min_age = 18 and questions
+  // 7, 9 have min_age = 21. A GreaterEq filter with age = 18 must return all
+  // five of them, including the questions exactly at the boundary (18).
+  nlohmann::json request_body;
+  request_body["age"] = 18;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 5);
+
+  const std::set<int> expected = {1, 3, 5, 7, 9};
+  for (const auto& q : resp.json_body) {
+    CHECK(expected.count(q["id"].get<int>()) == 1);
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestions with age filter excludes questions below the minimum "
+    "age") {
+  // With age = 21 only questions 7 and 9 (both min_age = 21) qualify; the
+  // questions with min_age = 18 must be excluded by the GreaterEq comparison.
+  nlohmann::json request_body;
+  request_body["age"] = 21;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 2);
+
+  const std::set<int> expected = {7, 9};
+  for (const auto& q : resp.json_body) {
+    CHECK(expected.count(q["id"].get<int>()) == 1);
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestions with age above all minimum ages returns nothing") {
+  // No seeded question has min_age >= 22, so the filter must match nothing.
+  nlohmann::json request_body;
+  request_body["age"] = 22;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  bool no_results = resp.json_body.is_null() ||
+                    (resp.json_body.is_array() && resp.json_body.empty());
+  CHECK(no_results);
+}
+
+TEST_CASE("RestSearchQuestions with age = 0 returns all questions (default)") {
+  // age = 0 equals the filter's nullValue, so the WHERE clause is skipped and
+  // the result is identical to sending no age at all.
+  nlohmann::json body_with_age;
+  body_with_age["age"] = 0;
+  body_with_age["limit"] = 0;  // limit = 0 means "no limit" -> all questions
+
+  auto resp_age = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", body_with_age.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_age.status == 200);
+  CHECK(resp_age.json_body.is_array());
+
+  nlohmann::json body_no_age;
+  body_no_age["limit"] = 0;
+
+  auto resp_no_age = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", body_no_age.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_no_age.status == 200);
+  CHECK(resp_no_age.json_body.is_array());
+
+  // The two requests must return the exact same set of questions.
+  CHECK(resp_age.json_body.size() == resp_no_age.json_body.size());
+  std::set<int> ids_age;
+  for (const auto& q : resp_age.json_body) ids_age.insert(q["id"].get<int>());
+  for (const auto& q : resp_no_age.json_body) {
+    CHECK(ids_age.count(q["id"].get<int>()) == 1);
+  }
+}
+
+TEST_CASE("RestSearchQuestions with age filter combined with language filter") {
+  // All questions carrying a non-zero min_age in the test data are English, so
+  // combining age = 21 with language = "en" still yields questions 7 and 9,
+  // while language = "de" yields nothing (cross-filter AND semantics).
+  nlohmann::json en_body;
+  en_body["age"] = 21;
+  en_body["language"] = "en";
+  en_body["limit"] = 1000;
+
+  auto resp_en = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", en_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_en.status == 200);
+  CHECK(resp_en.json_body.is_array());
+  CHECK(resp_en.json_body.size() == 2);
+  const std::set<int> expected_en = {7, 9};
+  for (const auto& q : resp_en.json_body) {
+    CHECK(expected_en.count(q["id"].get<int>()) == 1);
+  }
+
+  nlohmann::json de_body;
+  de_body["age"] = 18;
+  de_body["language"] = "de";
+  de_body["limit"] = 1000;
+
+  auto resp_de = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", de_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_de.status == 200);
+  bool no_results = resp_de.json_body.is_null() ||
+                    (resp_de.json_body.is_array() && resp_de.json_body.empty());
+  CHECK(no_results);
+}
+
 TEST_CASE("RestSearchQuestions with no filters returns all questions") {
   nlohmann::json request_body;
 
@@ -490,7 +618,8 @@ TEST_CASE("RestSearchQuestions with offset parameter paginates correctly") {
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
   // 100 questions total; with offset=10 and the default limit=50 we get the
-  // next 50 questions (ids 90 down to 41, ordered by created_at DESC / id DESC).
+  // next 50 questions (ids 90 down to 41, ordered by created_at DESC / id
+  // DESC).
   CHECK(resp.json_body.size() == 50);
 
   // All returned questions must lie in the expected id window.
@@ -542,7 +671,8 @@ TEST_CASE("RestSearchQuestions with limit > 1000 respects maximum limit") {
   CHECK(resp.json_body.size() == 100);
 }
 
-TEST_CASE("RestSearchQuestions with offset > total records returns no results") {
+TEST_CASE(
+    "RestSearchQuestions with offset > total records returns no results") {
   nlohmann::json request_body;
   request_body["offset"] = 200;
 
@@ -558,7 +688,8 @@ TEST_CASE("RestSearchQuestions with offset > total records returns no results") 
   CHECK(no_results);
 }
 
-TEST_CASE("RestSearchQuestions with offset and limit together paginates correctly") {
+TEST_CASE(
+    "RestSearchQuestions with offset and limit together paginates correctly") {
   nlohmann::json request_body;
   request_body["offset"] = 20;
   request_body["limit"] = 10;
@@ -641,7 +772,8 @@ TEST_CASE("RestSearchQuestions with negative limit defaults to 50") {
   CHECK(resp.json_body.size() == 50);
 }
 
-TEST_CASE("RestSearchQuestions preserves ORDER BY created_at DESC with pagination") {
+TEST_CASE(
+    "RestSearchQuestions preserves ORDER BY created_at DESC with pagination") {
   nlohmann::json request_body;
   request_body["limit"] = 5;
 
@@ -655,11 +787,13 @@ TEST_CASE("RestSearchQuestions preserves ORDER BY created_at DESC with paginatio
   // (most recent first). We check that the IDs are in descending order
   // Since created_at ordering should match the id ordering in our seed data
   for (size_t i = 1; i < resp.json_body.size(); ++i) {
-    CHECK(resp.json_body[i - 1]["id"].get<int>() > resp.json_body[i]["id"].get<int>());
+    CHECK(resp.json_body[i - 1]["id"].get<int>() >
+          resp.json_body[i]["id"].get<int>());
   }
 }
 
-TEST_CASE("RestSearchQuestions with pagination and filters combines correctly") {
+TEST_CASE(
+    "RestSearchQuestions with pagination and filters combines correctly") {
   nlohmann::json request_body;
   request_body["language"] = "en";
   request_body["offset"] = 10;
@@ -678,7 +812,8 @@ TEST_CASE("RestSearchQuestions with pagination and filters combines correctly") 
   }
 }
 
-TEST_CASE("RestSearchQuestions large offset with small limit returns correct slice") {
+TEST_CASE(
+    "RestSearchQuestions large offset with small limit returns correct slice") {
   nlohmann::json request_body;
   request_body["offset"] = 75;
   request_body["limit"] = 3;
