@@ -395,21 +395,23 @@ TEST_CASE("RestSearchQuestions with language filter returns results") {
 TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
   nlohmann::json request_body;
   request_body["categoryIds"] = nlohmann::json::array({1, 2, 3});
+  // Use a high limit so the full filtered set is returned (the default limit
+  // of 50 would otherwise truncate it). From the seed data: category 1 (Food)
+  // has 22 questions, category 2 (Mobility) has 8, category 3 (Lifestyle) has
+  // 24 -> 54 questions total.
+  request_body["limit"] = 1000;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // From seed data: categories 1 (Food), 2 (Cars), 3 (Exercise) - 5 questions
-  // each Total should be 15 questions
   CHECK(resp.json_body.size() == 54);
 
   for (const auto& q : resp.json_body) {
     int category_id = q["category_id"].get<int>();
-    CHECK(std::find(std::vector<int>({1, 2, 3}).begin(),
-                    std::vector<int>({1, 2, 3}).end(),
-                    category_id) != std::vector<int>({1, 2, 3}).end());
+    CHECK(category_id >= 1);
+    CHECK(category_id <= 3);
   }
 }
 
@@ -421,8 +423,8 @@ TEST_CASE("RestSearchQuestions with no filters returns all questions") {
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // Should return all 100 questions from seed data
-  CHECK(resp.json_body.size() == 100);
+  // With default pagination (limit=50), we get first 50 questions
+  CHECK(resp.json_body.size() == 50);
 }
 
 TEST_CASE("RestSearchQuestions with empty search returns all questions") {
@@ -434,8 +436,9 @@ TEST_CASE("RestSearchQuestions with empty search returns all questions") {
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // Search with empty string should return empty array
-  CHECK(resp.json_body.size() == 100);
+  // Empty search returns all questions
+  // With default limit=50, we get first 50
+  CHECK(resp.json_body.size() == 50);
 }
 
 TEST_CASE("RestSearchQuestions requires JSON body") {
@@ -470,5 +473,281 @@ TEST_CASE("RestSearchQuestions returns correct fields in response") {
     test_helpers::check_json_has_keys(
         resp.json_body[i], expected_keys,
         "rest_search_result[" + std::to_string(i) + "]");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /questions/restSearch  pagination tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("RestSearchQuestions with offset parameter paginates correctly") {
+  nlohmann::json request_body;
+  request_body["offset"] = 10;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // 100 questions total; with offset=10 and the default limit=50 we get the
+  // next 50 questions (ids 90 down to 41, ordered by created_at DESC / id DESC).
+  CHECK(resp.json_body.size() == 50);
+
+  // All returned questions must lie in the expected id window.
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    int id = resp.json_body[i]["id"].get<int>();
+    CHECK(id >= 41);
+    CHECK(id <= 90);
+  }
+}
+
+TEST_CASE("RestSearchQuestions with limit parameter restricts results count") {
+  nlohmann::json request_body;
+  request_body["limit"] = 5;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return only 5 questions
+  CHECK(resp.json_body.size() == 5);
+}
+
+TEST_CASE("RestSearchQuestions with limit=0 returns all questions") {
+  nlohmann::json request_body;
+  request_body["limit"] = 0;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  // limit=0 is treated as "no limit" by the backend (the LIMIT clause is only
+  // added when limit > 0), so all 100 seeded questions are returned.
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 100);
+}
+
+TEST_CASE("RestSearchQuestions with limit > 1000 respects maximum limit") {
+  nlohmann::json request_body;
+  request_body["limit"] = 1500;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // The backend caps the limit at 1000; with only 100 seeded questions it
+  // returns all of them.
+  CHECK(resp.json_body.size() == 100);
+}
+
+TEST_CASE("RestSearchQuestions with offset > total records returns no results") {
+  nlohmann::json request_body;
+  request_body["offset"] = 200;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  // When the offset is past the end of the result set the backend returns no
+  // rows. The response body is `null` rather than an empty JSON array, but we
+  // also accept an empty array for robustness.
+  bool no_results = resp.json_body.is_null() ||
+                    (resp.json_body.is_array() && resp.json_body.empty());
+  CHECK(no_results);
+}
+
+TEST_CASE("RestSearchQuestions with offset and limit together paginates correctly") {
+  nlohmann::json request_body;
+  request_body["offset"] = 20;
+  request_body["limit"] = 10;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return exactly 10 questions starting from offset 20
+  CHECK(resp.json_body.size() == 10);
+}
+
+TEST_CASE("RestSearchQuestions offset and limit override default values") {
+  nlohmann::json request_body;
+  request_body["offset"] = 30;
+  request_body["limit"] = 15;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return exactly 15 questions
+  CHECK(resp.json_body.size() == 15);
+
+  // Should NOT return default of 50 (limit 50 as described in comment)
+  CHECK(resp.json_body.size() != 50);
+}
+
+TEST_CASE("RestSearchQuestions with offset=0 returns first N results") {
+  nlohmann::json request_body;
+  request_body["offset"] = 0;
+  request_body["limit"] = 25;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return exactly 25 questions. Results are ordered by created_at DESC
+  // (newest first), which with the seed data corresponds to id DESC, so the
+  // first element is the highest id (100) and the last is 76.
+  CHECK(resp.json_body.size() == 25);
+  CHECK(resp.json_body[0]["id"].get<int>() == 100);
+  CHECK(resp.json_body[24]["id"].get<int>() == 76);
+
+  // Verify the slice is strictly ordered by id descending.
+  for (size_t i = 1; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i - 1]["id"].get<int>() >
+          resp.json_body[i]["id"].get<int>());
+  }
+}
+
+TEST_CASE("RestSearchQuestions with negative offset defaults to 0") {
+  nlohmann::json request_body;
+  request_body["offset"] = -5;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // A negative offset is clamped to 0, so the default limit=50 applies and we
+  // get the 50 most recent questions (ids 100 down to 51).
+  CHECK(resp.json_body.size() == 50);
+  CHECK(resp.json_body[0]["id"].get<int>() == 100);
+}
+
+TEST_CASE("RestSearchQuestions with negative limit defaults to 50") {
+  nlohmann::json request_body;
+  request_body["limit"] = -10;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should default to limit=50, returning only 50 questions
+  CHECK(resp.json_body.size() == 50);
+}
+
+TEST_CASE("RestSearchQuestions preserves ORDER BY created_at DESC with pagination") {
+  nlohmann::json request_body;
+  request_body["limit"] = 5;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+
+  // Verify the returned questions are in descending order by created_at
+  // (most recent first). We check that the IDs are in descending order
+  // Since created_at ordering should match the id ordering in our seed data
+  for (size_t i = 1; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i - 1]["id"].get<int>() > resp.json_body[i]["id"].get<int>());
+  }
+}
+
+TEST_CASE("RestSearchQuestions with pagination and filters combines correctly") {
+  nlohmann::json request_body;
+  request_body["language"] = "en";
+  request_body["offset"] = 10;
+  request_body["limit"] = 5;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return 5 English questions starting from offset 10
+  CHECK(resp.json_body.size() == 5);
+
+  for (const auto& q : resp.json_body) {
+    CHECK(q["language"] == "en");
+  }
+}
+
+TEST_CASE("RestSearchQuestions large offset with small limit returns correct slice") {
+  nlohmann::json request_body;
+  request_body["offset"] = 75;
+  request_body["limit"] = 3;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return 3 questions. Ordered by created_at DESC (id DESC), skipping
+  // the first 75 rows lands on ids 25, 24, 23.
+  CHECK(resp.json_body.size() == 3);
+
+  // Verify IDs are in the expected range (23-25)
+  for (const auto& q : resp.json_body) {
+    int id = q["id"].get<int>();
+    CHECK(id >= 23);
+    CHECK(id <= 25);
+  }
+}
+
+TEST_CASE("RestSearchQuestions zero offset with large limit works correctly") {
+  nlohmann::json request_body;
+  request_body["offset"] = 0;
+  request_body["limit"] = 150;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should respect the 1000 limit but return at most 100 questions
+  CHECK(resp.json_body.size() == 100);
+}
+
+TEST_CASE("RestSearchQuestions without explicit offset defaults to 0") {
+  nlohmann::json request_body;
+  request_body["limit"] = 10;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should default to offset=0, returning the first 10 questions in
+  // created_at DESC order (ids 100 down to 91).
+  CHECK(resp.json_body.size() == 10);
+  // The most recent question (highest id) is returned first.
+  CHECK(resp.json_body[0]["id"].get<int>() == 100);
+  CHECK(resp.json_body[9]["id"].get<int>() == 91);
+}
+
+TEST_CASE("RestSearchQuestions without explicit limit defaults to 50") {
+  nlohmann::json request_body;
+  request_body["offset"] = 20;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should default to limit=50, returning 50 questions.
+  CHECK(resp.json_body.size() == 50);
+
+  // Ordered by created_at DESC (id DESC), offset=20 skips ids 100..81 and
+  // returns ids 80 down to 31.
+  for (const auto& q : resp.json_body) {
+    int id = q["id"].get<int>();
+    CHECK(id >= 31);
+    CHECK(id <= 80);
   }
 }

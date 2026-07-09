@@ -417,6 +417,36 @@ void QuestionController::restSearchQuestions(
     return;
   }
 
+  // Extract pagination parameters with defaults
+  int offset = 0;
+  int limit = 50;
+  
+  if (json->isMember("offset")) {
+    try {
+      offset = (*json)["offset"].asInt();
+      if (offset < 0) {
+        offset = 0;
+      }
+    } catch (const std::exception& e) {
+      LOG_WARN << "Invalid offset value, using default (0): " << e.what();
+    }
+  }
+  
+  if (json->isMember("limit")) {
+    try {
+      limit = (*json)["limit"].asInt();
+      if (limit < 0) {
+        limit = 50;
+      }
+      // Apply a reasonable maximum limit to prevent abuse
+      if (limit > 1000) {
+        limit = 1000;
+      }
+    } catch (const std::exception& e) {
+      LOG_WARN << "Invalid limit value, using default (50): " << e.what();
+    }
+  }
+
   std::string sql =
       "SELECT q.id, q.text, q.language, q.category_id, "
       "c.name AS category_name FROM questions q "
@@ -429,6 +459,20 @@ void QuestionController::restSearchQuestions(
       appendFilter(f, (*json)[f.jsonKey], sql, params, idx);
     }
   }
+  
+  // Add ORDER BY to ensure consistent pagination
+  sql += " ORDER BY q.created_at DESC";
+  
+  // Add LIMIT and OFFSET for pagination
+  if (limit > 0) {
+    sql += fmt::format(" LIMIT ${}", idx++);
+    params.push_back(std::to_string(limit));
+  }
+  if (offset > 0) {
+    sql += fmt::format(" OFFSET ${}", idx++);
+    params.push_back(std::to_string(offset));
+  }
+  
   LOG_DEBUG << fmt::format("SQL: {} | params: [{}]", sql,
                            fmt::join(params, ", "));
 
