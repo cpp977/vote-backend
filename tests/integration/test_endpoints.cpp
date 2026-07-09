@@ -340,3 +340,135 @@ TEST_CASE("SearchQuestions returns all fields for each result") {
         "search_result[" + std::to_string(i) + "]");
   }
 }
+
+// ---------------------------------------------------------------------------
+// POST /questions/restSearch  (RESTful search endpoint)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("RestSearchQuestions with search filter returns results") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should find "How many bananas do you eat per week?" from seed data
+  CHECK(resp.json_body.size() >= 1);
+
+  bool found_banana_question = false;
+  for (const auto& q : resp.json_body) {
+    CHECK(q.contains("id"));
+    CHECK(q.contains("text"));
+    CHECK(q.contains("language"));
+    CHECK(q.contains("category_id"));
+    CHECK(q.contains("category_name"));
+
+    // Verify the search term appears in the text
+    std::string text = q["text"].get<std::string>();
+    if (text.find("bananas") != std::string::npos) {
+      found_banana_question = true;
+      CHECK(q["category_name"] == "Food");
+    }
+  }
+  CHECK(found_banana_question);
+}
+
+TEST_CASE("RestSearchQuestions with language filter returns results") {
+  nlohmann::json request_body;
+  request_body["language"] = "en";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return all 50 English questions from seed data
+  CHECK(resp.json_body.size() == 50);
+
+  for (const auto& q : resp.json_body) {
+    CHECK(q["language"] == "en");
+  }
+}
+
+TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
+  nlohmann::json request_body;
+  request_body["categoryIds"] = nlohmann::json::array({1, 2, 3});
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // From seed data: categories 1 (Food), 2 (Cars), 3 (Exercise) - 5 questions
+  // each Total should be 15 questions
+  CHECK(resp.json_body.size() == 54);
+
+  for (const auto& q : resp.json_body) {
+    int category_id = q["category_id"].get<int>();
+    CHECK(std::find(std::vector<int>({1, 2, 3}).begin(),
+                    std::vector<int>({1, 2, 3}).end(),
+                    category_id) != std::vector<int>({1, 2, 3}).end());
+  }
+}
+
+TEST_CASE("RestSearchQuestions with no filters returns all questions") {
+  nlohmann::json request_body;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Should return all 100 questions from seed data
+  CHECK(resp.json_body.size() == 100);
+}
+
+TEST_CASE("RestSearchQuestions with empty search returns all questions") {
+  nlohmann::json request_body;
+  request_body["search"] = "";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Search with empty string should return empty array
+  CHECK(resp.json_body.size() == 100);
+}
+
+TEST_CASE("RestSearchQuestions requires JSON body") {
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 400);
+}
+
+TEST_CASE("RestSearchQuestions with malformed JSON returns 400") {
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch",
+      "{\"search\": \"bananas\"", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 400);
+}
+
+TEST_CASE("RestSearchQuestions returns correct fields in response") {
+  nlohmann::json request_body;
+  request_body["search"] = "car";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+
+  // Check that every returned object has all expected keys
+  std::vector<std::string> expected_keys = {"id", "text", "language",
+                                            "category_id", "category_name"};
+
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    test_helpers::check_json_has_keys(
+        resp.json_body[i], expected_keys,
+        "rest_search_result[" + std::to_string(i) + "]");
+  }
+}

@@ -4,7 +4,10 @@
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/Mapper.h>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <json/json.h>
+#include <trantor/utils/Logger.h>
 
 #include <stdexcept>
 #include <string>
@@ -320,4 +323,139 @@ void QuestionController::getStats(
         },
         static_cast<int64_t>(questionId));
   }
+}
+
+enum class FilterKind { Equal, GreaterEq, LessEq, ILike, InArray };
+
+struct FilterDef {
+  std::string jsonKey;  // key expected in the JSON payload
+  std::string column;   // trusted, server-defined column name
+  FilterKind kind;
+  std::string castSuffix = "";  // e.g. "::int", "::timestamp"
+};
+
+// Server-defined, not derived from user input -> safe from injection
+static const std::vector<FilterDef> filters = {
+    {.jsonKey = "language", .column = "language", .kind = FilterKind::Equal},
+    {.jsonKey = "search",
+     .column = "text",
+     .kind = FilterKind::ILike},  // trigram-indexed column
+    {.jsonKey = "categoryIds",
+     .column = "category_id",
+     .kind = FilterKind::InArray,
+     .castSuffix = "::int[]"},
+};
+
+void appendFilter(const FilterDef& f, const Json::Value& value,
+                  std::string& sql, std::vector<std::string>& params,
+                  int& idx) {
+  switch (f.kind) {
+    case FilterKind::Equal:
+      sql += fmt::format(" AND {} = ${}{}", f.column, idx++, f.castSuffix);
+      params.push_back(value.asString());
+      break;
+
+    case FilterKind::GreaterEq:
+      sql += fmt::format(" AND {} >= ${}{}", f.column, idx++, f.castSuffix);
+      params.push_back(value.asString());
+      break;
+
+    case FilterKind::LessEq:
+      sql += fmt::format(" AND {} <= ${}{}", f.column, idx++, f.castSuffix);
+      params.push_back(value.asString());
+      break;
+
+    case FilterKind::ILike:
+      sql += fmt::format(" AND {} ILIKE ${}", f.column, idx++);
+      // wildcard wrapping happens on the VALUE, not the SQL text
+      params.push_back("%" + value.asString() + "%");
+      break;
+
+    case FilterKind::InArray: {
+      // value is expected to be a JSON array, e.g. [1, 2, 5]
+      std::vector<std::string> elems;
+      for (const auto& v : value) elems.push_back(v.asString());
+
+      sql += fmt::format(" AND {} = ANY(${}{})", f.column, idx++, f.castSuffix);
+      // bind the whole list as a single Postgres array literal
+      params.push_back(fmt::format("{{{}}}", fmt::join(elems, ",")));
+      break;
+    }
+  }
+}
+
+void QuestionController::restSearchQuestions(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto json = req->getJsonObject();
+  if (!json) {
+    const std::string& body = std::string(req->getBody());
+
+    Json::CharReaderBuilder builder;
+    std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    Json::Value root;
+    std::string errs;
+
+    bool ok =
+        reader->parse(body.data(), body.data() + body.size(), &root, &errs);
+
+    if (!ok) {
+      LOG_WARN << "Invalid JSON in request body: " << errs;
+      LOG_WARN << "Raw body was: " << body;
+    } else {
+      // rare: Drogon's own parser rejected it but JsonCpp directly succeeds —
+      // usually means Content-Type wasn't application/json
+      LOG_WARN
+          << "Body parsed independently but Drogon didn't recognize it as JSON "
+             "(check Content-Type header: "
+          << req->getHeader("Content-Type") << ")";
+    }
+
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  std::string sql =
+      "SELECT q.id, q.text, q.language, q.category_id, "
+      "c.name AS category_name FROM questions q "
+      "JOIN categories c ON q.category_id = c.id WHERE 1=1";
+  std::vector<std::string> params;
+  int idx = 1;
+
+  for (const auto& f : filters) {
+    if (json->isMember(f.jsonKey)) {
+      appendFilter(f, (*json)[f.jsonKey], sql, params, idx);
+    }
+  }
+  LOG_DEBUG << fmt::format("SQL: {} | params: [{}]", sql,
+                           fmt::join(params, ", "));
+
+  auto dbClientPtr = drogon::app().getDbClient();
+  auto binder = *dbClientPtr << sql;
+
+  for (const auto& p : params) binder << p;
+
+  binder >> [callback](const drogon::orm::Result& result) {
+    Json::Value ret;
+    for (const auto& row : result) {
+      Json::Value q;
+      q["id"] =
+          Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
+      q["text"] = row.at("text").as<std::string>();
+      q["language"] = row.at("language").as<std::string>();
+      q["category_id"] = Json::Value(
+          static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+      q["category_name"] = row.at("category_name").as<std::string>();
+      ret.append(q);
+    }
+    callback(HttpResponse::newHttpJsonResponse(ret));
+  } >> [callback](const drogon::orm::DrogonDbException& e) {
+    Json::Value err;
+    err["error"] = e.base().what();
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  };
 }
