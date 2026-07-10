@@ -38,6 +38,7 @@ set(
     include/vote-backend/models/Users.cc
     src/controllers/AuthController.cc
     src/utils/JwtService.cc
+    src/utils/UserIdHash.cc
     src/filters/JwtAuthFilter.cc
 )
 

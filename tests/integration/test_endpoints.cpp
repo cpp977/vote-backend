@@ -876,3 +876,88 @@ TEST_CASE("RestSearchQuestions without explicit limit defaults to 50") {
     CHECK(id <= 80);
   }
 }
+
+// ---------------------------------------------------------------------------
+// POST /questions/{id}/answer  (anonymous, one-answer-per-user enforcement)
+//
+// The backend inserts an anonymous hash of the user id (never the raw id)
+// together with the question_id into the `question_user` table, whose unique
+// primary key enforces that a user may answer a question only once. The
+// answer_option id ranges below come from the seed data (003_seed_data.sql):
+//   question 1 -> answer ids  1..5
+//   question 2 -> answer ids  6..10
+//   question 3 -> answer ids 11..13
+//   question 4 -> answer ids 14..16
+//   question 5 -> answer ids 17..21
+//   question 6 -> answer ids 22..26
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AnswerQuestion creates a new answer (201 Created)") {
+  // answer_id = 6 belongs to question 2.
+  nlohmann::json body;
+  body["answer_id"] = 6;
+  body["tags"] = {{"gender", "m"}, {"age", 30}};
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/2/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 201);
+  CHECK(resp.json_body.contains("id"));
+  CHECK(resp.json_body["id"].is_number());
+  CHECK(resp.json_body["question_id"] == 2);
+  CHECK(resp.json_body["answer_id"] == 6);
+}
+
+TEST_CASE("AnswerQuestion rejects a second answer with 409 Conflict") {
+  // First answer for question 4 must succeed.
+  nlohmann::json first;
+  first["answer_id"] = 14;  // belongs to question 4
+  auto r1 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/4/answer", first.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(r1.status == 201);
+
+  // A second answer for the same question (even a different option) must be
+  // rejected because the user already answered it.
+  nlohmann::json second;
+  second["answer_id"] = 15;  // also belongs to question 4
+  auto r2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/4/answer", second.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(r2.status == 409);
+  CHECK(r2.json_body.contains("error"));
+}
+
+TEST_CASE(
+    "AnswerQuestion with answer_id not belonging to the question is 400") {
+  // answer_id = 1 belongs to question 1, not question 5.
+  nlohmann::json body;
+  body["answer_id"] = 1;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/5/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AnswerQuestion without answer_id is 400") {
+  nlohmann::json body = {{"tags", {{"gender", "m"}}}};
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/6/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AnswerQuestion requires authentication (401)") {
+  nlohmann::json body;
+  body["answer_id"] = 6;
+
+  // No bearer token -> 401.
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/questions/2/answer", body.dump(),
+                                         "application/json", "");
+  CHECK(resp.status == 401);
+}

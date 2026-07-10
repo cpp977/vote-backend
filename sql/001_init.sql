@@ -61,3 +61,17 @@ WHERE tags ? 'gender';
 CREATE INDEX ix_user_answers_age
 ON user_answers ((tags->>'age'))
 WHERE tags ? 'age';
+
+-- Anonymous per-user answer tracking.
+-- Enforces at the database layer that a given user may answer a question only
+-- once. `hash_user_id` is a (salted) hash of the user id rather than the raw
+-- id, so it is not possible to determine which specific user answered a given
+-- question. The composite primary key on (question_id, hash_user_id) makes any
+-- second answer attempt for the same (question, user) pair fail with a unique
+-- violation.
+CREATE TABLE question_user (
+    question_id  BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    hash_user_id TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (question_id, hash_user_id)
+);

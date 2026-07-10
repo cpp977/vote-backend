@@ -20,6 +20,8 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::restSearchQuestions,
                 "/questions/restSearch", drogon::Post, drogon::Options,
                 "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::answerQuestion, "/questions/{1}/answer",
+                drogon::Post, drogon::Options, "JwtAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -41,4 +43,7 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void restSearchQuestions(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  void answerQuestion(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                      int questionId);
 };

@@ -32,6 +32,9 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **POST** | `/questions/{id}/answers` | Submit an answer for a question. | Bearer access token | ```json
 { "answer": "string" }
 ``` | *201 Created* – answer record. |
+| **POST** | `/questions/{id}/answer` | Submit an answer for a question. Enforces that a user may answer a question **only once**: the server records an anonymous, non‑reversible hash of the user id (never the raw id) together with the `question_id`, and a duplicate attempt is rejected. The insert is performed inside a transaction, so a failure never leaves a partial record. | Bearer access token | ```json
+{ "answer_id": 1, "tags": { "gender": "m", "age": 30 } }
+``` | *201 Created* – `{ "id": <int>, "question_id": <int>, "answer_id": <int> }`. Errors: 400 (missing/invalid `answer_id`, or `answer_id` does not belong to this question), 409 (user already answered this question), 500 (DB error). |
 | **GET** | `/questions/{id}/results` | Get aggregated results for a question. | Bearer access token | – | *200 OK* – tally per answer. |
 | **POST** | `/questions/restSearch` | Search/filter questions via a JSON body. Filters: `language` (exact match), `search` (case‑insensitive substring on the question text), `categoryIds` (match any of the given category ids), `age` (question `min_age` >= value). Supports pagination via `offset` (default 0) and `limit` (default 50, max 1000). | Bearer access token | ```json
 { "language": "string", "search": "string", "categoryIds": [1, 2, 3], "age": 0, "offset": 0, "limit": 50 }

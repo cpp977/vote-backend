@@ -3,6 +3,8 @@
 #include <drogon/HttpAppFramework.h>
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
+#include <drogon/orm/DbClient.h>
+#include <drogon/orm/Exception.h>
 #include <drogon/orm/Mapper.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -14,6 +16,7 @@
 
 #include "vote-backend/models/AnswerOptions.h"
 #include "vote-backend/models/Questions.h"
+#include "vote-backend/utils/UserIdHash.h"
 
 using drogon::orm::DrogonDbException;
 using drogon::orm::Result;
@@ -541,4 +544,145 @@ void QuestionController::restSearchQuestions(
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
   };
+}
+
+void QuestionController::answerQuestion(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback, int questionId) {
+  // 1. Authentication: the JWT filter stores the numeric user id in the
+  //    request attributes. A missing/zero id means the request was not
+  //    authenticated with a usable subject.
+  int64_t user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
+    Json::Value err;
+    err["error"] = "Unauthenticated";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  // 2. Request body must contain a numeric answer_id.
+  auto jsonPtr = req->jsonObject();
+  if (!jsonPtr) {
+    Json::Value err;
+    err["error"] = "No json object is found in the request";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  if (!jsonPtr->isMember("answer_id") ||
+      !(*jsonPtr)["answer_id"].isIntegral()) {
+    Json::Value err;
+    err["error"] = "Field 'answer_id' (integer) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  int64_t answer_id = (*jsonPtr)["answer_id"].asInt64();
+
+  // Optional tags object, persisted as jsonb.
+  std::string tags_json = "{}";
+  if (jsonPtr->isMember("tags") && (*jsonPtr)["tags"].isObject()) {
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    tags_json = Json::writeString(builder, (*jsonPtr)["tags"]);
+  }
+
+  // Opaque, non-reversible hash of the user id (privacy-preserving): the
+  // database stores this instead of the raw id.
+  std::string hash_user_id =
+      vote_backend::utils::user_id_hasher().hash(user_id);
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+  int64_t qid = static_cast<int64_t>(questionId);
+
+  // Perform both inserts atomically so a failure leaves no half-written state:
+  //   - question_user insert enforces "one answer per user". We use
+  //     ON CONFLICT DO NOTHING and inspect the affected row count: a count of
+  //     0 means the (question_id, hash_user_id) pair already exists, i.e. the
+  //     user has already answered.
+  //   - user_answers insert only happens if the answer option actually belongs
+  //     to the question.
+  dbClient->newTransactionAsync([=](const std::shared_ptr<
+                                    drogon::orm::Transaction>& trans) {
+    if (!trans) {
+      Json::Value err;
+      err["error"] = "database timeout";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k500InternalServerError);
+      (*callbackPtr)(resp);
+      return;
+    }
+
+    *trans << "INSERT INTO question_user (question_id, hash_user_id) "
+              "VALUES ($1::bigint, $2::text) "
+              "ON CONFLICT (question_id, hash_user_id) DO NOTHING"
+           << qid << hash_user_id >>
+        [=](const Result& r) {
+          if (r.affectedRows() == 0) {
+            // The user has already answered this question.
+            trans->rollback();
+            Json::Value err;
+            err["error"] = "You have already answered this question";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k409Conflict);
+            (*callbackPtr)(resp);
+            return;
+          }
+          *trans << "INSERT INTO user_answers (question_id, answer_id, tags) "
+                    "SELECT $1::bigint, $2::bigint, "
+                    "COALESCE($3::jsonb, '{}'::jsonb) "
+                    "WHERE EXISTS (SELECT 1 FROM answer_options ao "
+                    "WHERE ao.id = $2::bigint AND ao.question_id = $1::bigint) "
+                    "RETURNING id"
+                 << qid << answer_id << tags_json >>
+              [=](const Result& r) {
+                if (r.size() == 0) {
+                  // The answer option does not belong to this question.
+                  trans->rollback();
+                  Json::Value err;
+                  err["error"] =
+                      "answer_id does not belong to the given question";
+                  auto resp = HttpResponse::newHttpJsonResponse(err);
+                  resp->setStatusCode(k400BadRequest);
+                  (*callbackPtr)(resp);
+                  return;
+                }
+                Json::Value ret;
+                ret["id"] =
+                    static_cast<Json::Int64>(r[0]["id"].as<long long>());
+                ret["question_id"] = static_cast<Json::Int64>(qid);
+                ret["answer_id"] = static_cast<Json::Int64>(answer_id);
+                auto resp = HttpResponse::newHttpJsonResponse(ret);
+                resp->setStatusCode(k201Created);
+                trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
+              } >>
+              [=](const DrogonDbException& e) {
+                trans->rollback();
+                LOG_ERROR << "answerQuestion user_answers insert failed: "
+                          << e.base().what();
+                Json::Value err;
+                err["error"] = "database error";
+                auto resp = HttpResponse::newHttpJsonResponse(err);
+                resp->setStatusCode(k500InternalServerError);
+                (*callbackPtr)(resp);
+              };
+        } >>
+        [=](const DrogonDbException& e) {
+          trans->rollback();
+          LOG_ERROR << "answerQuestion question_user insert failed: "
+                    << e.base().what();
+          Json::Value err;
+          err["error"] = "database error";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k500InternalServerError);
+          (*callbackPtr)(resp);
+        };
+  });
 }
