@@ -342,7 +342,7 @@ struct FilterDef {
 // Server-defined, not derived from user input -> safe from injection
 static const std::vector<FilterDef> filters = {
     {.jsonKey = "language",
-     .column = "language",
+     .column = "q.language",
      .kind = FilterKind::Equal,
      .nullValue = ""},  // default: empty string -> skip WHERE clause
     {.jsonKey = "search",

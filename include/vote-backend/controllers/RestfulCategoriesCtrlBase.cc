@@ -370,14 +370,15 @@ void RestfulCategoriesCtrlBase::update(const HttpRequestPtr &req,
 }*/
 
 RestfulCategoriesCtrlBase::RestfulCategoriesCtrlBase()
-    : RestfulController({"id", "name"}) {
+    : RestfulController({"id", "name", "language"}) {
   /**
    * The items in the vector are aliases of column names in the table.
    * if one item is set to an empty string, the related column is not sent
    * to clients.
    */
   enableMasquerading({
-      "id",   // the alias for the id column.
-      "name"  // the alias for the name column.
+      "id",       // the alias for the id column.
+      "name",     // the alias for the name column.
+      "language"  // the alias for the language column.
   });
 }

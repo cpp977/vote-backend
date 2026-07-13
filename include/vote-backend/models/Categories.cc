@@ -19,13 +19,15 @@ using namespace drogon_model::vote;
 
 const std::string Categories::Cols::_id = "\"id\"";
 const std::string Categories::Cols::_name = "\"name\"";
+const std::string Categories::Cols::_language = "\"language\"";
 const std::string Categories::primaryKeyName = "id";
 const bool Categories::hasPrimaryKey = true;
 const std::string Categories::tableName = "\"categories\"";
 
 const std::vector<typename Categories::MetaData> Categories::metaData_ = {
     {"id", "int64_t", "bigint", 8, 1, 1, 1},
-    {"name", "std::string", "text", 0, 0, 0, 1}};
+    {"name", "std::string", "text", 0, 0, 0, 1},
+    {"language", "std::string", "character", 0, 0, 0, 1}};
 const std::string& Categories::getColumnName(size_t index) noexcept(false) {
   assert(index < metaData_.size());
   return metaData_[index].colName_;
@@ -38,9 +40,13 @@ Categories::Categories(const Row& r, const ssize_t indexOffset) noexcept {
     if (!r["name"].isNull()) {
       name_ = std::make_shared<std::string>(r["name"].as<std::string>());
     }
+    if (!r["language"].isNull()) {
+      language_ =
+          std::make_shared<std::string>(r["language"].as<std::string>());
+    }
   } else {
     size_t offset = (size_t)indexOffset;
-    if (offset + 2 > r.size()) {
+    if (offset + 3 > r.size()) {
       LOG_FATAL << "Invalid SQL result for this model";
       return;
     }
@@ -53,13 +59,17 @@ Categories::Categories(const Row& r, const ssize_t indexOffset) noexcept {
     if (!r[index].isNull()) {
       name_ = std::make_shared<std::string>(r[index].as<std::string>());
     }
+    index = offset + 2;
+    if (!r[index].isNull()) {
+      language_ = std::make_shared<std::string>(r[index].as<std::string>());
+    }
   }
 }
 
 Categories::Categories(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector) noexcept(false) {
-  if (pMasqueradingVector.size() != 2) {
+  if (pMasqueradingVector.size() != 3) {
     LOG_ERROR << "Bad masquerading vector";
     return;
   }
@@ -77,6 +87,14 @@ Categories::Categories(
     if (!pJson[pMasqueradingVector[1]].isNull()) {
       name_ = std::make_shared<std::string>(
           pJson[pMasqueradingVector[1]].asString());
+    }
+  }
+  if (!pMasqueradingVector[2].empty() &&
+      pJson.isMember(pMasqueradingVector[2])) {
+    dirtyFlag_[2] = true;
+    if (!pJson[pMasqueradingVector[2]].isNull()) {
+      language_ = std::make_shared<std::string>(
+          pJson[pMasqueradingVector[2]].asString());
     }
   }
 }
@@ -94,12 +112,18 @@ Categories::Categories(const Json::Value& pJson) noexcept(false) {
       name_ = std::make_shared<std::string>(pJson["name"].asString());
     }
   }
+  if (pJson.isMember("language")) {
+    dirtyFlag_[2] = true;
+    if (!pJson["language"].isNull()) {
+      language_ = std::make_shared<std::string>(pJson["language"].asString());
+    }
+  }
 }
 
 void Categories::updateByMasqueradedJson(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector) noexcept(false) {
-  if (pMasqueradingVector.size() != 2) {
+  if (pMasqueradingVector.size() != 3) {
     LOG_ERROR << "Bad masquerading vector";
     return;
   }
@@ -118,6 +142,14 @@ void Categories::updateByMasqueradedJson(
           pJson[pMasqueradingVector[1]].asString());
     }
   }
+  if (!pMasqueradingVector[2].empty() &&
+      pJson.isMember(pMasqueradingVector[2])) {
+    dirtyFlag_[2] = true;
+    if (!pJson[pMasqueradingVector[2]].isNull()) {
+      language_ = std::make_shared<std::string>(
+          pJson[pMasqueradingVector[2]].asString());
+    }
+  }
 }
 
 void Categories::updateByJson(const Json::Value& pJson) noexcept(false) {
@@ -130,6 +162,12 @@ void Categories::updateByJson(const Json::Value& pJson) noexcept(false) {
     dirtyFlag_[1] = true;
     if (!pJson["name"].isNull()) {
       name_ = std::make_shared<std::string>(pJson["name"].asString());
+    }
+  }
+  if (pJson.isMember("language")) {
+    dirtyFlag_[2] = true;
+    if (!pJson["language"].isNull()) {
+      language_ = std::make_shared<std::string>(pJson["language"].asString());
     }
   }
 }
@@ -168,10 +206,27 @@ void Categories::setName(std::string&& pName) noexcept {
   dirtyFlag_[1] = true;
 }
 
+const std::string& Categories::getValueOfLanguage() const noexcept {
+  static const std::string defaultValue = std::string();
+  if (language_) return *language_;
+  return defaultValue;
+}
+const std::shared_ptr<std::string>& Categories::getLanguage() const noexcept {
+  return language_;
+}
+void Categories::setLanguage(const std::string& pLanguage) noexcept {
+  language_ = std::make_shared<std::string>(pLanguage);
+  dirtyFlag_[2] = true;
+}
+void Categories::setLanguage(std::string&& pLanguage) noexcept {
+  language_ = std::make_shared<std::string>(std::move(pLanguage));
+  dirtyFlag_[2] = true;
+}
+
 void Categories::updateId(const uint64_t id) {}
 
 const std::vector<std::string>& Categories::insertColumns() noexcept {
-  static const std::vector<std::string> inCols = {"name"};
+  static const std::vector<std::string> inCols = {"name", "language"};
   return inCols;
 }
 
@@ -183,12 +238,22 @@ void Categories::outputArgs(drogon::orm::internal::SqlBinder& binder) const {
       binder << nullptr;
     }
   }
+  if (dirtyFlag_[2]) {
+    if (getLanguage()) {
+      binder << getValueOfLanguage();
+    } else {
+      binder << nullptr;
+    }
+  }
 }
 
 const std::vector<std::string> Categories::updateColumns() const {
   std::vector<std::string> ret;
   if (dirtyFlag_[1]) {
     ret.push_back(getColumnName(1));
+  }
+  if (dirtyFlag_[2]) {
+    ret.push_back(getColumnName(2));
   }
   return ret;
 }
@@ -197,6 +262,13 @@ void Categories::updateArgs(drogon::orm::internal::SqlBinder& binder) const {
   if (dirtyFlag_[1]) {
     if (getName()) {
       binder << getValueOfName();
+    } else {
+      binder << nullptr;
+    }
+  }
+  if (dirtyFlag_[2]) {
+    if (getLanguage()) {
+      binder << getValueOfLanguage();
     } else {
       binder << nullptr;
     }
@@ -214,6 +286,11 @@ Json::Value Categories::toJson() const {
   } else {
     ret["name"] = Json::Value();
   }
+  if (getLanguage()) {
+    ret["language"] = getValueOfLanguage();
+  } else {
+    ret["language"] = Json::Value();
+  }
   return ret;
 }
 
@@ -222,7 +299,7 @@ std::string Categories::toString() const { return toJson().toStyledString(); }
 Json::Value Categories::toMasqueradedJson(
     const std::vector<std::string>& pMasqueradingVector) const {
   Json::Value ret;
-  if (pMasqueradingVector.size() == 2) {
+  if (pMasqueradingVector.size() == 3) {
     if (!pMasqueradingVector[0].empty()) {
       if (getId()) {
         ret[pMasqueradingVector[0]] = (Json::Int64)getValueOfId();
@@ -235,6 +312,13 @@ Json::Value Categories::toMasqueradedJson(
         ret[pMasqueradingVector[1]] = getValueOfName();
       } else {
         ret[pMasqueradingVector[1]] = Json::Value();
+      }
+    }
+    if (!pMasqueradingVector[2].empty()) {
+      if (getLanguage()) {
+        ret[pMasqueradingVector[2]] = getValueOfLanguage();
+      } else {
+        ret[pMasqueradingVector[2]] = Json::Value();
       }
     }
     return ret;
@@ -250,6 +334,11 @@ Json::Value Categories::toMasqueradedJson(
   } else {
     ret["name"] = Json::Value();
   }
+  if (getLanguage()) {
+    ret["language"] = getValueOfLanguage();
+  } else {
+    ret["language"] = Json::Value();
+  }
   return ret;
 }
 
@@ -264,12 +353,19 @@ bool Categories::validateJsonForCreation(const Json::Value& pJson,
     err = "The name column cannot be null";
     return false;
   }
+  if (pJson.isMember("language")) {
+    if (!validJsonOfField(2, "language", pJson["language"], err, true))
+      return false;
+  } else {
+    err = "The language column cannot be null";
+    return false;
+  }
   return true;
 }
 bool Categories::validateMasqueradedJsonForCreation(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector, std::string& err) {
-  if (pMasqueradingVector.size() != 2) {
+  if (pMasqueradingVector.size() != 3) {
     err = "Bad masquerading vector";
     return false;
   }
@@ -291,6 +387,16 @@ bool Categories::validateMasqueradedJsonForCreation(
         return false;
       }
     }
+    if (!pMasqueradingVector[2].empty()) {
+      if (pJson.isMember(pMasqueradingVector[2])) {
+        if (!validJsonOfField(2, pMasqueradingVector[2],
+                              pJson[pMasqueradingVector[2]], err, true))
+          return false;
+      } else {
+        err = "The " + pMasqueradingVector[2] + " column cannot be null";
+        return false;
+      }
+    }
   } catch (const Json::LogicError& e) {
     err = e.what();
     return false;
@@ -308,12 +414,16 @@ bool Categories::validateJsonForUpdate(const Json::Value& pJson,
   if (pJson.isMember("name")) {
     if (!validJsonOfField(1, "name", pJson["name"], err, false)) return false;
   }
+  if (pJson.isMember("language")) {
+    if (!validJsonOfField(2, "language", pJson["language"], err, false))
+      return false;
+  }
   return true;
 }
 bool Categories::validateMasqueradedJsonForUpdate(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector, std::string& err) {
-  if (pMasqueradingVector.size() != 2) {
+  if (pMasqueradingVector.size() != 3) {
     err = "Bad masquerading vector";
     return false;
   }
@@ -332,6 +442,12 @@ bool Categories::validateMasqueradedJsonForUpdate(
         pJson.isMember(pMasqueradingVector[1])) {
       if (!validJsonOfField(1, pMasqueradingVector[1],
                             pJson[pMasqueradingVector[1]], err, false))
+        return false;
+    }
+    if (!pMasqueradingVector[2].empty() &&
+        pJson.isMember(pMasqueradingVector[2])) {
+      if (!validJsonOfField(2, pMasqueradingVector[2],
+                            pJson[pMasqueradingVector[2]], err, false))
         return false;
     }
   } catch (const Json::LogicError& e) {
@@ -359,6 +475,16 @@ bool Categories::validJsonOfField(size_t index, const std::string& fieldName,
       }
       break;
     case 1:
+      if (pJson.isNull()) {
+        err = "The " + fieldName + " column cannot be null";
+        return false;
+      }
+      if (!pJson.isString()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      break;
+    case 2:
       if (pJson.isNull()) {
         err = "The " + fieldName + " column cannot be null";
         return false;

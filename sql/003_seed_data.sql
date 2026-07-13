@@ -1,17 +1,19 @@
 -- 003_seed_data.sql
 
 -- Insert Categories
-INSERT INTO categories (name) VALUES
-('Food'),
-('Mobility'),
-('Lifestyle'),
-('Technology'),
-('Environment'),
-('Work'),
-('Health'),
-('Finance'),
-('Education'),
-('Entertainment');
+-- Each category is language-tagged; the seed categories use the canonical
+-- English labels, mirroring how `questions.language` works.
+INSERT INTO categories (name, language) VALUES
+('Food', 'en'),
+('Mobility', 'en'),
+('Lifestyle', 'en'),
+('Technology', 'en'),
+('Environment', 'en'),
+('Work', 'en'),
+('Health', 'en'),
+('Finance', 'en'),
+('Education', 'en'),
+('Entertainment', 'en');
 
 -- Insert Questions and Answer Options
 

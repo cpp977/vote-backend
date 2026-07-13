@@ -961,3 +961,63 @@ TEST_CASE("AnswerQuestion requires authentication (401)") {
                                          "application/json", "");
   CHECK(resp.status == 401);
 }
+
+// ---------------------------------------------------------------------------
+// GET /categories  (category language column added, mirroring questions)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("GetCategories returns the language field for every row") {
+  // The categories table now carries a `language` column (NOT NULL, FK to
+  // languages), mirroring how `questions.language` works. GET /categories
+  // must surface it for each seeded category.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/categories", "", "application/json",
+                                         global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // 10 seed categories from 003_seed_data.sql.
+  CHECK(resp.json_body.size() == 10);
+
+  std::vector<std::string> expected_keys = {"id", "name", "language"};
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    test_helpers::check_json_has_keys(resp.json_body[i], expected_keys,
+                                      "category[" + std::to_string(i) + "]");
+    // language must be a 2-char ISO code, e.g. "en".
+    CHECK(resp.json_body[i]["language"].is_string());
+    CHECK(resp.json_body[i]["language"].get<std::string>().size() == 2);
+  }
+}
+
+TEST_CASE("CreateCategory without language is rejected (400)") {
+  // `language` is now a NOT NULL column, so a category created without it
+  // must be rejected by the model validation before any DB write happens
+  // (no row is inserted, so this test leaves no residue).
+  nlohmann::json body;
+  body["name"] = "TestCategoryWithoutLanguage";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/categories", body.dump(), "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("CreateCategory with language succeeds (200)") {
+  // A well-formed category carrying a valid language code must be accepted.
+  // Uses a unique name so it does not collide with the UNIQUE constraint on
+  // the seed categories. Note: the generated REST controller's create()
+  // returns 200 (not 201) for a successful insertion.
+  nlohmann::json body;
+  body["name"] = "TestCategoryWithLanguage";
+  body["language"] = "en";
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/categories", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("id"));
+  CHECK(resp.json_body.contains("name"));
+  CHECK(resp.json_body.contains("language"));
+  CHECK(resp.json_body["name"] == "TestCategoryWithLanguage");
+  CHECK(resp.json_body["language"] == "en");
+}

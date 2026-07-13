@@ -1,8 +1,3 @@
-CREATE TABLE categories (
-    id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-);
-
 CREATE TABLE languages (
     code CHAR(2) PRIMARY KEY,
     name TEXT NOT NULL
@@ -19,6 +14,12 @@ INSERT INTO languages (code, name) VALUES
     ('ar', 'Arabic'),
     ('pt', 'Portuguese'),
     ('hi', 'Hindi');
+
+CREATE TABLE categories (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    language CHAR(2) NOT NULL REFERENCES languages(code) ON DELETE RESTRICT
+);
 
 CREATE TABLE questions (
     id BIGSERIAL PRIMARY KEY,
