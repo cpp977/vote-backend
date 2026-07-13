@@ -8,6 +8,7 @@ CREATE TABLE users (
     birth_year INT,
     gender CHAR(1) CHECK (gender IN ('m', 'w', 'd')),
     nationality VARCHAR(100),
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

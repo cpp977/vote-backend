@@ -23,6 +23,7 @@ const std::string Users::Cols::_gender = "\"gender\"";
 const std::string Users::Cols::_nationality = "\"nationality\"";
 const std::string Users::Cols::_created_at = "\"created_at\"";
 const std::string Users::Cols::_updated_at = "\"updated_at\"";
+const std::string Users::Cols::_is_admin = "\"is_admin\"";
 const std::string Users::primaryKeyName = "id";
 const bool Users::hasPrimaryKey = true;
 const std::string Users::tableName = "\"users\"";
@@ -36,7 +37,8 @@ const std::vector<typename Users::MetaData> Users::metaData_ = {
     {"gender", "std::string", "character", 1, 0, 0, 0},
     {"nationality", "std::string", "character varying", 100, 0, 0, 0},
     {"created_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1},
-    {"updated_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1}};
+    {"updated_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1},
+    {"is_admin", "bool", "boolean", 1, 0, 0, 1}};
 const std::string& Users::getColumnName(size_t index) noexcept(false) {
   assert(index < metaData_.size());
   return metaData_[index].colName_;
@@ -106,9 +108,12 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
     }
+    if (!r["is_admin"].isNull()) {
+      isAdmin_ = std::make_shared<bool>(r["is_admin"].as<bool>());
+    }
   } else {
     size_t offset = (size_t)indexOffset;
-    if (offset + 9 > r.size()) {
+    if (offset + 10 > r.size()) {
       LOG_FATAL << "Invalid SQL result for this model";
       return;
     }
@@ -180,6 +185,10 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
         updatedAt_ =
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
+    }
+    index = offset + 9;
+    if (!r[index].isNull()) {
+      isAdmin_ = std::make_shared<bool>(r[index].as<bool>());
     }
   }
 }
@@ -273,6 +282,12 @@ Users::Users(const Json::Value& pJson) noexcept(false) {
       }
     }
   }
+  if (pJson.isMember("is_admin")) {
+    dirtyFlag_[9] = true;
+    if (!pJson["is_admin"].isNull()) {
+      isAdmin_ = std::make_shared<bool>(pJson["is_admin"].asBool());
+    }
+  }
 }
 
 void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
@@ -361,6 +376,12 @@ void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
         updatedAt_ =
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
+    }
+  }
+  if (pJson.isMember("is_admin")) {
+    dirtyFlag_[9] = true;
+    if (!pJson["is_admin"].isNull()) {
+      isAdmin_ = std::make_shared<bool>(pJson["is_admin"].asBool());
     }
   }
 }
@@ -504,6 +525,23 @@ void Users::setUpdatedAt(const ::trantor::Date& pUpdatedAt) noexcept {
   dirtyFlag_[8] = true;
 }
 
+const bool& Users::getValueOfIsAdmin() const noexcept {
+  static const bool defaultValue = bool();
+  if (isAdmin_) return *isAdmin_;
+  return defaultValue;
+}
+const std::shared_ptr<bool>& Users::getIsAdmin() const noexcept {
+  return isAdmin_;
+}
+void Users::setIsAdmin(const bool& pIsAdmin) noexcept {
+  isAdmin_ = std::make_shared<bool>(pIsAdmin);
+  dirtyFlag_[9] = true;
+}
+void Users::setIsAdmin(bool&& pIsAdmin) noexcept {
+  isAdmin_ = std::make_shared<bool>(std::move(pIsAdmin));
+  dirtyFlag_[9] = true;
+}
+
 void Users::updateId(const uint64_t id) {}
 
 const std::vector<std::string>& Users::insertColumns() noexcept {
@@ -570,6 +608,13 @@ void Users::outputArgs(drogon::orm::internal::SqlBinder& binder) const {
       binder << nullptr;
     }
   }
+  if (dirtyFlag_[9]) {
+    if (getIsAdmin()) {
+      binder << getValueOfIsAdmin();
+    } else {
+      binder << nullptr;
+    }
+  }
 }
 
 const std::vector<std::string> Users::updateColumns() const {
@@ -597,6 +642,9 @@ const std::vector<std::string> Users::updateColumns() const {
   }
   if (dirtyFlag_[8]) {
     ret.push_back(getColumnName(8));
+  }
+  if (dirtyFlag_[9]) {
+    ret.push_back(getColumnName(9));
   }
   return ret;
 }
@@ -658,6 +706,13 @@ void Users::updateArgs(drogon::orm::internal::SqlBinder& binder) const {
       binder << nullptr;
     }
   }
+  if (dirtyFlag_[9]) {
+    if (getIsAdmin()) {
+      binder << getValueOfIsAdmin();
+    } else {
+      binder << nullptr;
+    }
+  }
 }
 
 Json::Value Users::toJson() const {
@@ -703,6 +758,11 @@ Json::Value Users::toJson() const {
   } else {
     ret["updated_at"] = Json::Value();
   }
+  if (getIsAdmin()) {
+    ret["is_admin"] = getValueOfIsAdmin();
+  } else {
+    ret["is_admin"] = Json::Value();
+  }
   return ret;
 }
 
@@ -746,6 +806,10 @@ bool Users::validateJsonForCreation(const Json::Value& pJson,
     if (!validJsonOfField(6, "nationality", pJson["nationality"], err, true))
       return false;
   }
+  if (pJson.isMember("is_admin")) {
+    if (!validJsonOfField(9, "is_admin", pJson["is_admin"], err, true))
+      return false;
+  }
   return true;
 }
 bool Users::validateJsonForUpdate(const Json::Value& pJson, std::string& err) {
@@ -777,6 +841,10 @@ bool Users::validateJsonForUpdate(const Json::Value& pJson, std::string& err) {
   }
   if (pJson.isMember("nationality")) {
     if (!validJsonOfField(6, "nationality", pJson["nationality"], err, false))
+      return false;
+  }
+  if (pJson.isMember("is_admin")) {
+    if (!validJsonOfField(9, "is_admin", pJson["is_admin"], err, false))
       return false;
   }
   return true;
@@ -860,6 +928,16 @@ bool Users::validJsonOfField(size_t index, const std::string& fieldName,
         return true;
       }
       if (!pJson.isString()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      break;
+    case 9:
+      if (pJson.isNull()) {
+        // Optional field
+        return true;
+      }
+      if (!pJson.isBool()) {
         err = "Type error in the " + fieldName + " field";
         return false;
       }

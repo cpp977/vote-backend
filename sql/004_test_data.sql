@@ -3,7 +3,7 @@
 -- so that GET /questions/{id}/stats returns deterministic results.
 
 -- ---------------------------------------------------------------------------
--- Test user (password: 12345678, hashed with argon2id)
+-- Regular test user (password: 12345678, hashed with argon2id)
 -- ---------------------------------------------------------------------------
 INSERT INTO users (username, email, password_hash, birth_year, gender, nationality)
 VALUES (
@@ -13,6 +13,22 @@ VALUES (
   1990,
   'm',
   'US'
+);
+
+-- ---------------------------------------------------------------------------
+-- Admin test user (password: 12345678, hashed with argon2id).
+-- Flagged as admin (is_admin = TRUE) so that admin-only endpoints can be
+-- exercised end-to-end once they are added.
+-- ---------------------------------------------------------------------------
+INSERT INTO users (username, email, password_hash, birth_year, gender, nationality, is_admin)
+VALUES (
+  'Admin',
+  'admin@example.com',
+  '$argon2id$v=19$m=65536,t=2,p=1$7IwaKiaTuSf8MV6JOC/InA$KPZSbQabGbDdhRz1JtzjWUk4wokot/5PebP8xmP/nzQ',
+  1985,
+  'w',
+  'US',
+  TRUE
 );
 
 -- ---------------------------------------------------------------------------

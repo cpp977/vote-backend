@@ -452,8 +452,8 @@ void AuthController::login(const HttpRequestPtr& req,
   auto db = app().getDbClient();
 
   db->execSqlAsync(
-      "SELECT id, username, email, password_hash FROM users WHERE username = "
-      "$1",
+      "SELECT id, username, email, password_hash, is_admin FROM users WHERE "
+      "username = $1",
       [cb, db, password](const drogon::orm::Result& r) {
         if (r.size() == 0) {
           send_error(cb, "Invalid credentials", k401Unauthorized);
@@ -470,11 +470,12 @@ void AuthController::login(const HttpRequestPtr& req,
 
         int64_t user_id = row["id"].as<int64_t>();
         std::string uname = row["username"].as<std::string>();
+        bool is_admin = row["is_admin"].as<bool>();
 
         // Generate tokens
         auto jwt_svc = vote_backend::utils::make_jwt_service();
         std::string access_token =
-            jwt_svc.generate_access_token(user_id, uname);
+            jwt_svc.generate_access_token(user_id, uname, is_admin);
         std::string refresh_token = jwt_svc.generate_refresh_token(user_id);
 
         // Store refresh token hash in DB
@@ -555,7 +556,7 @@ void AuthController::me(const HttpRequestPtr& req,
 
   db->execSqlAsync(
       "SELECT id, username, email, birth_year, gender, nationality, "
-      "created_at FROM users WHERE id = $1",
+      "created_at, is_admin FROM users WHERE id = $1",
       [cb](const drogon::orm::Result& r) {
         if (r.size() == 0) {
           send_error(cb, "User not found", k404NotFound);
@@ -577,6 +578,7 @@ void AuthController::me(const HttpRequestPtr& req,
         if (!row["nationality"].isNull()) {
           user["nationality"] = row["nationality"].as<std::string>();
         }
+        user["is_admin"] = row["is_admin"].as<bool>();
         user["created_at"] = row["created_at"].as<std::string>();
 
         auto resp = HttpResponse::newHttpJsonResponse(user);
@@ -714,7 +716,7 @@ void AuthController::update_me(
       "updated_at = NOW() "
       "WHERE id = $4 "
       "RETURNING id, username, email, birth_year, gender, nationality, "
-      "created_at, updated_at";
+      "created_at, updated_at, is_admin";
 
   db->execSqlAsync(
       sql,
@@ -738,6 +740,7 @@ void AuthController::update_me(
         if (!row["nationality"].isNull()) {
           user["nationality"] = row["nationality"].as<std::string>();
         }
+        user["is_admin"] = row["is_admin"].as<bool>();
         user["created_at"] = row["created_at"].as<std::string>();
         user["updated_at"] = row["updated_at"].as<std::string>();
 
@@ -820,7 +823,7 @@ void AuthController::refresh(const HttpRequestPtr& req,
             [cb, db, user_id, jwt_svc](const drogon::orm::Result&) {
               // Fetch username for the new access token
               db->execSqlAsync(
-                  "SELECT username FROM users WHERE id = $1",
+                  "SELECT username, is_admin FROM users WHERE id = $1",
                   [cb, db, user_id, jwt_svc](const drogon::orm::Result& r2) {
                     if (r2.size() == 0) {
                       send_error(cb, "User not found", k401Unauthorized);
@@ -828,10 +831,11 @@ void AuthController::refresh(const HttpRequestPtr& req,
                     }
 
                     std::string username = r2[0]["username"].as<std::string>();
+                    bool is_admin = r2[0]["is_admin"].as<bool>();
 
                     // Generate new token pair
-                    std::string new_access =
-                        jwt_svc.generate_access_token(user_id, username);
+                    std::string new_access = jwt_svc.generate_access_token(
+                        user_id, username, is_admin);
                     std::string new_refresh =
                         jwt_svc.generate_refresh_token(user_id);
                     std::string new_hash = sha256_hex(new_refresh);

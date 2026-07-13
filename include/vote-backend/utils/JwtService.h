@@ -36,10 +36,13 @@ public:
      * @brief Generate a short-lived access token.
      * @param user_id The user's database ID.
      * @param username The user's username.
+     * @param is_admin Whether the user has admin privileges. Embedded as the
+     *                 `is_admin` claim so the AdminAuthFilter can enforce it.
      * @return The encoded JWT string.
      */
     std::string generate_access_token(int64_t user_id,
-                                      const std::string &username) const;
+                                      const std::string &username,
+                                      bool is_admin = false) const;
 
     /**
      * @brief Generate a long-lived refresh token.

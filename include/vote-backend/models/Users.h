@@ -52,6 +52,7 @@ class Users
         static const std::string _nationality;
         static const std::string _created_at;
         static const std::string _updated_at;
+        static const std::string _is_admin;
     };
 
     static const int primaryKeyNumber;
@@ -124,7 +125,13 @@ class Users
     const std::shared_ptr<::trantor::Date> &getUpdatedAt() const noexcept;
     void setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 9;  }
+    /**  For column is_admin  */
+    const bool &getValueOfIsAdmin() const noexcept;
+    const std::shared_ptr<bool> &getIsAdmin() const noexcept;
+    void setIsAdmin(const bool &pIsAdmin) noexcept;
+    void setIsAdmin(bool &&pIsAdmin) noexcept;
+
+    static size_t getColumnNumber() noexcept {  return 10;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -153,6 +160,7 @@ class Users
     std::shared_ptr<std::string> nationality_;
     std::shared_ptr<::trantor::Date> createdAt_;
     std::shared_ptr<::trantor::Date> updatedAt_;
+    std::shared_ptr<bool> isAdmin_;
     struct MetaData
     {
         const std::string colName_;
@@ -164,7 +172,7 @@ class Users
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[9]={ false };
+    bool dirtyFlag_[10]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -229,6 +237,8 @@ class Users
         {
             needSelection=true;
         }
+        sql += "is_admin,";
+        ++parametersCount;
         needSelection=true;
         if(parametersCount > 0)
         {
@@ -286,6 +296,15 @@ class Users
             sql +="default,";
         }
         if(dirtyFlag_[8])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[9])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

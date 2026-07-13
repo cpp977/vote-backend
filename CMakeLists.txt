@@ -41,6 +41,7 @@ set(
     src/utils/JwtService.cc
     src/utils/UserIdHash.cc
     src/filters/JwtAuthFilter.cc
+    src/filters/AdminAuthFilter.cc
 )
 
 # main target
@@ -60,6 +61,7 @@ set(
     tests/users_model_test.cpp
     tests/jwt_service_test.cpp
     tests/jwt_auth_filter_test.cpp
+    tests/admin_auth_filter_test.cpp
 )
 
 set(
