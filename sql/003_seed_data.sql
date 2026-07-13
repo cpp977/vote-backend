@@ -13,7 +13,18 @@ INSERT INTO categories (name, language) VALUES
 ('Health', 'en'),
 ('Finance', 'en'),
 ('Education', 'en'),
-('Entertainment', 'en');
+('Entertainment', 'en'),
+-- German translations of categories
+('Essen', 'de'),
+('Mobilität', 'de'),
+('Lebensstil', 'de'),
+('Technologie', 'de'),
+('Umwelt', 'de'),
+('Arbeit', 'de'),
+('Gesundheit', 'de'),
+('Finanzen', 'de'),
+('Bildung', 'de'),
+('Unterhaltung', 'de');
 
 -- Insert Questions and Answer Options
 
@@ -25,7 +36,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '6-10');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 10');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Bananen essen Sie pro Woche?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Bananen essen Sie pro Woche?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '0');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '3-5');
@@ -38,7 +49,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'No');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'I share one');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie ein eigenes Auto?', (SELECT id FROM categories WHERE name = 'Mobility'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie ein eigenes Auto?', (SELECT id FROM categories WHERE name = 'Mobilität' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nein');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ich teile mir eines');
@@ -51,7 +62,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '6-10 times');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 10 times');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft essen Sie pro Monat Fast Food?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft essen Sie pro Monat Fast Food?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '3-5 Mal');
@@ -66,7 +77,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Walking');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Motorcycle/Scooter');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr hauptsächliches Verkehrsmittel?', (SELECT id FROM categories WHERE name = 'Mobility'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr hauptsächliches Verkehrsmittel?', (SELECT id FROM categories WHERE name = 'Mobilität' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Auto');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Öffentlicher Nahverkehr');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Fahrrad');
@@ -81,7 +92,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '9-10');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 10');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden schlafen Sie pro Nacht?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden schlafen Sie pro Nacht?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 5');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '5-6');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '7-8');
@@ -96,7 +107,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-4 hours');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 4 hours');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie lange nutzen Sie pro Tag soziale Medien?', (SELECT id FROM categories WHERE name = 'Technology'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie lange nutzen Sie pro Tag soziale Medien?', (SELECT id FROM categories WHERE name = 'Technologie' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 30 Minuten');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '30-60 Minuten');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Stunden');
@@ -111,7 +122,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rarely');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Never');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Recyceln Sie regelmäßig?', (SELECT id FROM categories WHERE name = 'Environment'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Recyceln Sie regelmäßig?', (SELECT id FROM categories WHERE name = 'Umwelt' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Immer');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Oft');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Manchmal');
@@ -126,7 +137,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '4-5');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 5');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Tassen Kaffee trinken Sie pro Tag?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Tassen Kaffee trinken Sie pro Tag?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '0');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-3');
@@ -142,7 +153,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Student');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Retired');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Beschäftigungsstatus?', (SELECT id FROM categories WHERE name = 'Work'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Beschäftigungsstatus?', (SELECT id FROM categories WHERE name = 'Arbeit' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Vollzeit angestellt');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Teilzeit angestellt');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Selbstständig');
@@ -158,7 +169,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '5-6 times');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Every day');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft treiben Sie pro Woche Sport?', (SELECT id FROM categories WHERE name = 'Health'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft treiben Sie pro Woche Sport?', (SELECT id FROM categories WHERE name = 'Gesundheit' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '3-4 Mal');
@@ -173,7 +184,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'PhD');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Other');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr höchster Bildungsabschluss?', (SELECT id FROM categories WHERE name = 'Education'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr höchster Bildungsabschluss?', (SELECT id FROM categories WHERE name = 'Bildung' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Abitur');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Bachelor');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Master');
@@ -188,7 +199,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '$150 - $200');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than $200');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel geben Sie pro Woche für Lebensmittel aus?', (SELECT id FROM categories WHERE name = 'Finance'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel geben Sie pro Woche für Lebensmittel aus?', (SELECT id FROM categories WHERE name = 'Finanzen' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 50 €');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '50 - 100 €');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '100 - 150 €');
@@ -205,7 +216,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Electronic');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Country');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsmusikrichtung?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsmusikrichtung?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Pop');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rock');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Hip Hop');
@@ -222,7 +233,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '4-6');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 6');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden schauen Sie pro Tag Fernsehen?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden schauen Sie pro Tag Fernsehen?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 1');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-4');
@@ -236,7 +247,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Both equally');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Neither');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Katzen oder Hunde – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Katzen oder Hunde – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Katzen');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Hunde');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Beide gleich');
@@ -250,7 +261,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '6-10 times');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 10 times');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft fliegen Sie pro Jahr?', (SELECT id FROM categories WHERE name = 'Mobility'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft fliegen Sie pro Jahr?', (SELECT id FROM categories WHERE name = 'Mobilität' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '3-5 Mal');
@@ -264,7 +275,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Autumn');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Winter');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsjahreszeit?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsjahreszeit?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Frühling');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Sommer');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Herbst');
@@ -278,7 +289,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '11-20');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 20');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Bücher lesen Sie pro Jahr?', (SELECT id FROM categories WHERE name = 'Education'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Bücher lesen Sie pro Jahr?', (SELECT id FROM categories WHERE name = 'Bildung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '0');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-5');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '6-10');
@@ -290,7 +301,7 @@ INSERT INTO questions (text, category_id, language, min_age) VALUES ('Do you use
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Yes');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'No');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie ein Smartphone?', (SELECT id FROM categories WHERE name = 'Technology'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie ein Smartphone?', (SELECT id FROM categories WHERE name = 'Technologie' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nein');
 
@@ -301,7 +312,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-3 liters');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 3 liters');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel Wasser trinken Sie pro Tag?', (SELECT id FROM categories WHERE name = 'Health'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel Wasser trinken Sie pro Tag?', (SELECT id FROM categories WHERE name = 'Gesundheit' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 1 Liter');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Liter');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-3 Liter');
@@ -317,7 +328,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'American');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Mediterranean');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsküche?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsküche?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Italienisch');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Mexikanisch');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Chinesisch');
@@ -331,7 +342,7 @@ INSERT INTO questions (text, category_id, language, min_age) VALUES ('Do you hav
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Yes');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'No');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie eine Fitnessstudio-Mitgliedschaft?', (SELECT id FROM categories WHERE name = 'Health'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie eine Fitnessstudio-Mitgliedschaft?', (SELECT id FROM categories WHERE name = 'Gesundheit' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nein');
 
@@ -343,7 +354,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '4-6');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 6');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden verbringen Sie pro Tag mit Ihrem Handy?', (SELECT id FROM categories WHERE name = 'Technology'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden verbringen Sie pro Tag mit Ihrem Handy?', (SELECT id FROM categories WHERE name = 'Technologie' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 1');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-4');
@@ -359,7 +370,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'LinkedIn');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Snapchat');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblings-Social-Media-Plattform?', (SELECT id FROM categories WHERE name = 'Technology'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblings-Social-Media-Plattform?', (SELECT id FROM categories WHERE name = 'Technologie' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Facebook');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Instagram');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Twitter');
@@ -374,7 +385,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Both equally');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Neither');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Tee oder Kaffee – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Tee oder Kaffee – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Tee');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Kaffee');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Beide gleich');
@@ -388,7 +399,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '6-10 times');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 10 times');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft essen Sie pro Monat auswärts?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft essen Sie pro Monat auswärts?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '3-5 Mal');
@@ -405,7 +416,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Romance');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Documentary');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsfilmart?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsfilmart?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Action');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Komödie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Drama');
@@ -422,7 +433,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rarely');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Never');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Spielen Sie Videospiele?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Spielen Sie Videospiele?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Täglich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wöchentlich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Monatlich');
@@ -439,7 +450,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Hamster/Guinea Pig');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'None');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblinghaustier?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblinghaustier?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Hund');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Katze');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Fisch');
@@ -456,7 +467,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rarely');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Never');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft hören Sie Podcasts?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft hören Sie Podcasts?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Täglich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wöchentlich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Monatlich');
@@ -471,7 +482,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Cloudy');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Windy');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingswetterart?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingswetterart?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Sonnig');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Regnerisch');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Schnee');
@@ -486,7 +497,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rarely');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Never');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie öffentliche Verkehrsmittel?', (SELECT id FROM categories WHERE name = 'Mobility'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie öffentliche Verkehrsmittel?', (SELECT id FROM categories WHERE name = 'Mobilität' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Täglich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wöchentlich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Monatlich');
@@ -501,7 +512,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '4-6');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 6');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden verbringen Sie pro Tag mit Hausaufgaben/Lernen?', (SELECT id FROM categories WHERE name = 'Education'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viele Stunden verbringen Sie pro Tag mit Hausaufgaben/Lernen?', (SELECT id FROM categories WHERE name = 'Bildung' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 1');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-2');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-4');
@@ -518,7 +529,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Cycling');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Other');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingssportart?', (SELECT id FROM categories WHERE name = 'Health'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingssportart?', (SELECT id FROM categories WHERE name = 'Gesundheit' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Fußball');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Basketball');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Tennis');
@@ -534,7 +545,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Both equally');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Neither');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Süße oder salzige Snacks – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Süße oder salzige Snacks – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Süß');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Salzig');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Beides gleich');
@@ -548,7 +559,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '7-12 times');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than 12 times');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft gehen Sie pro Jahr ins Kino?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft gehen Sie pro Jahr ins Kino?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nie');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '1-3 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '4-6 Mal');
@@ -564,7 +575,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Adventure');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Staycation');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsurlaubsart?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsurlaubsart?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Strand');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Berge');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Städtetrip');
@@ -578,7 +589,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Yes, multiple');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'No');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie einen Streaming-Dienst?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Nutzen Sie einen Streaming-Dienst?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja, einen');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja, mehrere');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nein');
@@ -591,7 +602,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '$100 - $200');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'More than $200');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel geben Sie pro Monat für Unterhaltung aus?', (SELECT id FROM categories WHERE name = 'Finance'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie viel geben Sie pro Monat für Unterhaltung aus?', (SELECT id FROM categories WHERE name = 'Finanzen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Weniger als 20 €');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '20 - 50 €');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '50 - 100 €');
@@ -608,7 +619,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Dance');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Theater');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingskunstform?', (SELECT id FROM categories WHERE name = 'Entertainment'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingskunstform?', (SELECT id FROM categories WHERE name = 'Unterhaltung' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Malerei');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Skulptur');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Fotografie');
@@ -623,7 +634,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'In-store');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Both equally');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Online oder im Geschäft einkaufen – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Online oder im Geschäft einkaufen – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Online');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Im Geschäft');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Beides gleich');
@@ -636,7 +647,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Rarely');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Never');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft engagieren Sie sich ehrenamtlich?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft engagieren Sie sich ehrenamtlich?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wöchentlich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Monatlich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Jährlich');
@@ -653,7 +664,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wine');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Cocktails');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblingsgetränk?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblingsgetränk?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Wasser');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Limonade');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Saft');
@@ -667,7 +678,7 @@ INSERT INTO questions (text, category_id, language, min_age) VALUES ('Do you hav
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Yes');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'No');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie einen Garten?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Haben Sie einen Garten?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Ja');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Nein');
 
@@ -678,7 +689,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Once');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Less than once');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft putzen Sie pro Woche Ihre Wohnung?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft putzen Sie pro Woche Ihre Wohnung?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Täglich');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-3 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Einmal');
@@ -694,7 +705,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Watermelon');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Pineapple');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsfrucht?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihre Lieblingsfrucht?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Apfel');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Banane');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Orange');
@@ -709,7 +720,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Order takeout');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Both equally');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Kochen oder Essen bestellen – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Kochen oder Essen bestellen – was bevorzugen Sie?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Kochen');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Essen bestellen');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Beides gleich');
@@ -721,7 +732,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Once');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Less than once');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft besuchen Sie pro Monat Ihre Familie?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Wie oft besuchen Sie pro Monat Ihre Familie?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Jede Woche');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), '2-3 Mal');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Einmal');
@@ -736,7 +747,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Candy');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Chocolate');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblingsdessert?', (SELECT id FROM categories WHERE name = 'Food'), 'de', 12);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Was ist Ihr Lieblingsdessert?', (SELECT id FROM categories WHERE name = 'Essen' AND language = 'de'), 'de', 12);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Kuchen');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Eis');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Kekse');
@@ -751,7 +762,7 @@ INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'With friends');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'With family');
 
-INSERT INTO questions (text, category_id, language, min_age) VALUES ('Reisen Sie lieber allein oder mit anderen?', (SELECT id FROM categories WHERE name = 'Lifestyle'), 'de', 0);
+INSERT INTO questions (text, category_id, language, min_age) VALUES ('Reisen Sie lieber allein oder mit anderen?', (SELECT id FROM categories WHERE name = 'Lebensstil' AND language = 'de'), 'de', 0);
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Allein');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Mit dem Partner / der Partnerin');
 INSERT INTO answer_options (question_id, text) VALUES (currval('questions_id_seq'), 'Mit Freunden');

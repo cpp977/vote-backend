@@ -17,9 +17,12 @@ INSERT INTO languages (code, name) VALUES
 
 CREATE TABLE categories (
     id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     language CHAR(2) NOT NULL REFERENCES languages(code) ON DELETE RESTRICT
 );
+
+-- Unique constraint so the same category name can appear only once per language
+CREATE UNIQUE INDEX categories_name_lang_unique ON categories (name, language);
 
 CREATE TABLE questions (
     id BIGSERIAL PRIMARY KEY,

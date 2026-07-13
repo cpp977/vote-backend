@@ -28,7 +28,7 @@ TEST_CASE("QuestionsWithCategories") {
   // week?").
   CHECK(resp.json_body[0]["id"] == 2);
   CHECK(resp.json_body[0]["text"] == "Wie viele Bananen essen Sie pro Woche?");
-  CHECK(resp.json_body[0]["category_name"] == "Food");
+  CHECK(resp.json_body[0]["category_name"] == "Essen");
 }
 
 TEST_CASE("GetAnswerOptions for question 1") {
@@ -396,11 +396,11 @@ TEST_CASE("RestSearchQuestions with language filter returns results") {
 
 TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
   nlohmann::json request_body;
-  request_body["categoryIds"] = nlohmann::json::array({1, 2, 3});
+  request_body["categoryIds"] = nlohmann::json::array({1, 2, 3, 11, 12, 13});
   // Use a high limit so the full filtered set is returned (the default limit
-  // of 50 would otherwise truncate it). From the seed data: category 1 (Food)
-  // has 22 questions, category 2 (Mobility) has 8, category 3 (Lifestyle) has
-  // 24 -> 54 questions total.
+  // of 50 would otherwise truncate it). Query both language variants of
+  // Food/Mobility/Lifestyle: EN categories 1,2,3 and DE categories 11,12,13
+  // -> 27 questions per language, 54 total.
   request_body["limit"] = 1000;
 
   auto resp = test_helpers::http_request(
@@ -412,8 +412,11 @@ TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
 
   for (const auto& q : resp.json_body) {
     int category_id = q["category_id"].get<int>();
-    CHECK(category_id >= 1);
-    CHECK(category_id <= 3);
+    // Returned questions must belong to the queried categories (EN 1-3 or DE
+    // 11-13).
+    bool in_filter = (category_id >= 1 && category_id <= 3) ||
+                     (category_id >= 11 && category_id <= 13);
+    CHECK(in_filter);
   }
 }
 
@@ -975,8 +978,8 @@ TEST_CASE("GetCategories returns the language field for every row") {
                                          global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // 10 seed categories from 003_seed_data.sql.
-  CHECK(resp.json_body.size() == 10);
+  // 20 seed categories (10 EN + 10 DE) from 003_seed_data.sql.
+  CHECK(resp.json_body.size() == 20);
 
   std::vector<std::string> expected_keys = {"id", "name", "language"};
   for (size_t i = 0; i < resp.json_body.size(); ++i) {

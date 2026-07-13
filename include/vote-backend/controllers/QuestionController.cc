@@ -483,7 +483,8 @@ void QuestionController::restSearchQuestions(
   std::string sql =
       "SELECT q.id, q.text, q.language, q.category_id, "
       "c.name AS category_name FROM questions q "
-      "JOIN categories c ON q.category_id = c.id WHERE 1=1";
+      "LEFT JOIN categories c ON c.id = q.category_id AND c.language = q.language "
+      "WHERE 1=1";
   std::vector<std::string> params;
   int idx = 1;
 
@@ -526,6 +527,26 @@ void QuestionController::restSearchQuestions(
   binder >> [callback](const drogon::orm::Result& result) {
     Json::Value ret;
     for (const auto& row : result) {
+      const auto& category_name = row.at("category_name");
+      // The JOIN matches the category on language, so a NULL category_name
+      // means the question is linked to a category that has no translation in
+      // the question's language (data inconsistency). Surface it instead of
+      // returning a question with a missing or foreign-language category name.
+      if (category_name.isNull()) {
+        LOG_ERROR << "Question " << row.at("id").as<long long>()
+                  << " (language " << row.at("language").as<std::string>()
+                  << ") references category "
+                  << row.at("category_id").as<long long>()
+                  << " which has no translation in that language";
+        Json::Value err;
+        err["error"] =
+            "Data inconsistency: a question references a category that is "
+            "not available in the question's language";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        callback(resp);
+        return;
+      }
       Json::Value q;
       q["id"] =
           Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
@@ -533,7 +554,7 @@ void QuestionController::restSearchQuestions(
       q["language"] = row.at("language").as<std::string>();
       q["category_id"] = Json::Value(
           static_cast<Json::Int64>(row.at("category_id").as<long long>()));
-      q["category_name"] = row.at("category_name").as<std::string>();
+      q["category_name"] = category_name.as<std::string>();
       ret.append(q);
     }
     callback(HttpResponse::newHttpJsonResponse(ret));
