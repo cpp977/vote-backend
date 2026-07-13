@@ -1,3 +1,4 @@
+#include <ctime>
 #include <set>
 
 #include "integration_helpers.hpp"
@@ -1063,4 +1064,137 @@ TEST_CASE("CreateCategory with language succeeds (200)") {
   CHECK(resp.json_body.contains("language"));
   CHECK(resp.json_body["name"] == "TestCategoryWithLanguage");
   CHECK(resp.json_body["language"] == "en");
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /me  (and PUT /me) – update the authenticated user's own profile
+//
+// Only email, gender and password are modifiable. The username is the user's
+// identity (from the JWT) and must never be changed.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("UpdateMe changes email") {
+  // Use a dedicated user so we don't disturb the global fixture user.
+  std::string uname = "updateme_email";
+  std::string orig_email = "updateme_email@example.com";
+  std::string new_email = "updateme_email_new@example.com";
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, uname, orig_email,
+                                          "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"email", new_email}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("username"));
+  CHECK(resp.json_body["username"] == uname);
+  CHECK(resp.json_body.contains("email"));
+  CHECK(resp.json_body["email"] == new_email);
+  // The password hash must never be returned in the response.
+  CHECK_FALSE(resp.json_body.contains("password_hash"));
+}
+
+TEST_CASE("UpdateMe changes gender") {
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, "updateme_gender",
+                                          "updateme_gender@example.com",
+                                          "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"gender", "w"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("gender"));
+  CHECK(resp.json_body["gender"] == "w");
+}
+
+TEST_CASE("UpdateMe changes password and invalidates the old one") {
+  // Use a unique username per run so the test stays isolated against a
+  // persistent database: changing the password would otherwise break re-runs
+  // that try to log in again with the original password.
+  std::string uname = "updateme_pw_" + std::to_string(std::time(nullptr));
+  std::string email = uname + "@example.com";
+  std::string old_pw = "password123";
+  std::string new_pw = "newpassword456";
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, uname, email,
+                                          old_pw, 1990, "m", "US");
+
+  // Change the password.
+  nlohmann::json body = {{"password", new_pw}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 200);
+
+  // Login with the NEW password now succeeds.
+  auto login_new = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/login",
+      nlohmann::json{{"username", uname}, {"password", new_pw}}.dump());
+  CHECK(login_new.status == 200);
+
+  // Login with the OLD password is rejected.
+  auto login_old = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/login",
+      nlohmann::json{{"username", uname}, {"password", old_pw}}.dump());
+  CHECK(login_old.status == 401);
+}
+
+TEST_CASE("UpdateMe with PUT also updates the profile") {
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, "updateme_put",
+                                          "updateme_put@example.com",
+                                          "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"email", "updateme_put2@example.com"}};
+  auto resp = test_helpers::http_request(
+      "PUT", "127.0.0.1", 8848, "/me", body.dump(), "application/json", token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["email"] == "updateme_put2@example.com");
+}
+
+TEST_CASE("UpdateMe rejects username modification") {
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, "updateme_uname",
+                                          "updateme_uname@example.com",
+                                          "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"username", "hacked"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("UpdateMe rejects invalid gender") {
+  auto token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "updateme_badgender", "updateme_badgender@example.com",
+      "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"gender", "x"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("UpdateMe rejects email already in use") {
+  // The seeded test user "Jim" owns "jim@example.com" (see
+  // sql/004_test_data.sql), so reusing that email must be rejected with 409.
+  auto token = test_helpers::authenticate("127.0.0.1", 8848, "updateme_dup",
+                                          "updateme_dup@example.com",
+                                          "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"email", "jim@example.com"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 409);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("UpdateMe requires authentication") {
+  nlohmann::json body = {{"email", "nobody@example.com"}};
+  auto resp = test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me",
+                                         body.dump(), "application/json", "");
+  CHECK(resp.status == 401);
 }

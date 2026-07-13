@@ -24,6 +24,8 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **POST** | `/refresh` | Exchange a valid refresh token for a new token pair. | No (refresh token in body) | ```json
 { "refresh_token": "string" }
 ``` | *200 OK* – new `{ "access_token": "...", "refresh_token": "..." }`. Errors: 400, 401. |
+| **PATCH** | `/me` | Update the authenticated user's own profile. Only `email`, `gender` and `password` are modifiable; `username` is the user's identity and is **never** modifiable. | Bearer access token | JSON object with any subset of `email` (string), `gender` (`"m"`/`"w"`/`"d"`), `password` (string, min 8 chars). | *200 OK* – updated user object (never includes `password_hash`). Errors: 400 (invalid/missing field, `username` not modifiable, no fields provided), 401 (missing/invalid token), 404, 409 (email already in use), 500. |
+| **PUT** | `/me` | Same as `PATCH /me` – update the authenticated user's own profile (partial update accepted). | Bearer access token | JSON object with any subset of `email`, `gender`, `password` (see `PATCH /me`). | *200 OK* – updated user object. Errors: 400, 401, 404, 409, 500. |
 | **GET** | `/questions` | Retrieve all voting questions. | Bearer access token | – | *200 OK* – array of question objects. |
 | **GET** | `/questions/{id}` | Retrieve a single question by its UUID. | Bearer access token | – | *200 OK* – question object or 404. |
 | **POST** | `/questions` | Create a new question (admin only). | Bearer access token (admin) | ```json

@@ -96,7 +96,10 @@ inline HttpResponse http_request(const std::string& method,
     stream.connect(results);
 
     http::request<http::string_body> req;
-    req.method(method == "POST" ? http::verb::post : http::verb::get);
+    // Accept arbitrary HTTP verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, ...)
+    // so that tests can exercise methods beyond the two that were hard-coded
+    // previously.
+    req.method(http::string_to_verb(method));
     req.target(target);
     req.version(11);
     req.set(http::field::host, host);

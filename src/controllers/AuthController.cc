@@ -591,6 +591,178 @@ void AuthController::me(const HttpRequestPtr& req,
 }
 
 // ---------------------------------------------------------------------------
+// PATCH /me  (and PUT /me) – update the authenticated user's own profile
+//
+// Only `email`, `gender` and `password` may be modified. The `username` is the
+// user's identity (derived from the JWT) and is therefore never modifiable;
+// any attempt to change it (or any other field) is rejected with 400.
+// `password` is re-hashed with Argon2id before being stored.
+// ---------------------------------------------------------------------------
+void AuthController::update_me(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
+  // Identify the user from the JWT (set by JwtAuthFilter).
+  auto user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
+    send_error(cb, "Unauthorized", k401Unauthorized);
+    return;
+  }
+
+  auto json = req->getJsonObject();
+  if (!json) {
+    send_error(cb, "Invalid JSON body", k400BadRequest);
+    return;
+  }
+  if (!json->isObject()) {
+    send_error(cb, "Request body must be a JSON object", k400BadRequest);
+    return;
+  }
+
+  // Collect the (optional) modifiable fields from the body.
+  bool has_email = false, has_gender = false, has_password = false;
+  std::string email;
+  std::string gender;
+  std::string password;
+
+  for (auto it = json->begin(); it != json->end(); ++it) {
+    const std::string key = it.name();
+    if (key == "email") {
+      if (it->isNull()) {
+        send_error(cb, "email cannot be null", k400BadRequest);
+        return;
+      }
+      if (!it->isString()) {
+        send_error(cb, "email must be a string", k400BadRequest);
+        return;
+      }
+      email = it->asString();
+      if (email.empty()) {
+        send_error(cb, "email cannot be empty", k400BadRequest);
+        return;
+      }
+      has_email = true;
+    } else if (key == "gender") {
+      if (it->isNull()) {
+        send_error(cb, "gender cannot be null", k400BadRequest);
+        return;
+      }
+      if (!it->isString()) {
+        send_error(cb, "gender must be a string", k400BadRequest);
+        return;
+      }
+      gender = it->asString();
+      if (gender != "m" && gender != "w" && gender != "d") {
+        send_error(cb, "gender must be one of 'm', 'w', 'd'", k400BadRequest);
+        return;
+      }
+      has_gender = true;
+    } else if (key == "password") {
+      if (it->isNull()) {
+        send_error(cb, "password cannot be null", k400BadRequest);
+        return;
+      }
+      if (!it->isString()) {
+        send_error(cb, "password must be a string", k400BadRequest);
+        return;
+      }
+      password = it->asString();
+      if (password.empty()) {
+        send_error(cb, "password cannot be empty", k400BadRequest);
+        return;
+      }
+      if (password.size() < 8) {
+        send_error(cb, "password must be at least 8 characters",
+                   k400BadRequest);
+        return;
+      }
+      has_password = true;
+    } else {
+      // username and every other field are not modifiable via this endpoint.
+      send_error(cb, "field '" + key + "' is not modifiable", k400BadRequest);
+      return;
+    }
+  }
+
+  if (!has_email && !has_gender && !has_password) {
+    send_error(cb, "No modifiable fields provided", k400BadRequest);
+    return;
+  }
+
+  // Hash the new password (if any) before touching the database.
+  std::string pw_hash;
+  if (has_password) {
+    try {
+      pw_hash = hash_password(password);
+    } catch (const std::exception& e) {
+      send_error(cb, std::string("Internal error: ") + e.what(),
+                 k500InternalServerError);
+      return;
+    }
+  }
+
+  auto db = app().getDbClient();
+
+  // The CASE expressions keep the existing column value when the corresponding
+  // placeholder is left empty (i.e. the field was not requested for update).
+  // All three modifiable columns are NOT NULL, so an empty string can safely
+  // serve as the "no change" sentinel.
+  std::string sql =
+      "UPDATE users SET "
+      "email = CASE WHEN $1 <> '' THEN $1 ELSE email END, "
+      "gender = CASE WHEN $2 <> '' THEN $2 ELSE gender END, "
+      "password_hash = CASE WHEN $3 <> '' THEN $3 ELSE password_hash END, "
+      "updated_at = NOW() "
+      "WHERE id = $4 "
+      "RETURNING id, username, email, birth_year, gender, nationality, "
+      "created_at, updated_at";
+
+  db->execSqlAsync(
+      sql,
+      [cb](const drogon::orm::Result& r) {
+        if (r.size() == 0) {
+          send_error(cb, "User not found", k404NotFound);
+          return;
+        }
+
+        const auto& row = r[0];
+        Json::Value user;
+        user["id"] = Json::Int64(row["id"].as<int64_t>());
+        user["username"] = row["username"].as<std::string>();
+        user["email"] = row["email"].as<std::string>();
+        if (!row["birth_year"].isNull()) {
+          user["birth_year"] = row["birth_year"].as<int>();
+        }
+        if (!row["gender"].isNull()) {
+          user["gender"] = row["gender"].as<std::string>();
+        }
+        if (!row["nationality"].isNull()) {
+          user["nationality"] = row["nationality"].as<std::string>();
+        }
+        user["created_at"] = row["created_at"].as<std::string>();
+        user["updated_at"] = row["updated_at"].as<std::string>();
+
+        auto resp = HttpResponse::newHttpJsonResponse(user);
+        resp->setStatusCode(k200OK);
+        cb(resp);
+      },
+      [cb](const drogon::orm::DrogonDbException& e) {
+        std::string msg = e.base().what();
+        // The only unique constraint that can be violated here is the one on
+        // email (username is never updated).
+        if (msg.find("duplicate") != std::string::npos ||
+            msg.find("unique") != std::string::npos) {
+          send_error(cb, "email already in use", k409Conflict);
+          return;
+        }
+        send_error(cb, std::string("Database error: ") + msg,
+                   k500InternalServerError);
+      },
+      has_email ? email : std::string(""),
+      has_gender ? gender : std::string(""),
+      has_password ? pw_hash : std::string(""), user_id);
+}
+
+// ---------------------------------------------------------------------------
 // POST /refresh
 // ---------------------------------------------------------------------------
 void AuthController::refresh(const HttpRequestPtr& req,
