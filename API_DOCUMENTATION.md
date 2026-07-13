@@ -39,6 +39,7 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **POST** | `/questions/restSearch` | Search/filter questions via a JSON body. Filters: `language` (exact match), `search` (case‑insensitive substring on the question text), `categoryIds` (match any of the given category ids), `age` (question `min_age` >= value). Supports pagination via `offset` (default 0) and `limit` (default 50, max 1000). | Bearer access token | ```json
 { "language": "string", "search": "string", "categoryIds": [1, 2, 3], "age": 0, "offset": 0, "limit": 50 }
 ``` | *200 OK* – array of question objects (`id`, `text`, `language`, `category_id`, `category_name`). Errors: 400 (invalid JSON body), 500 (DB error). |
+| **GET** | `/categories/lang/{lang}` | Retrieve all categories for a given language code (e.g. `en`, `de`). Returns only categories whose `language` column matches the path parameter. | Bearer access token | – | *200 OK* – array of category objects (`id`, `name`, `language`). Returns an empty array for an unknown language code. |
 
 ## Authentication Details
 

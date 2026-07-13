@@ -29,6 +29,7 @@ set(
     include/vote-backend/controllers/RestfulAnswerOptionsCtrl.cc
     include/vote-backend/controllers/RestfulCategoriesCtrlBase.cc
     include/vote-backend/controllers/RestfulCategoriesCtrl.cc
+    include/vote-backend/controllers/CategoryController.cc
     include/vote-backend/controllers/QuestionController.cc
     include/vote-backend/models/UserAnswers.cc
     include/vote-backend/models/Questions.cc

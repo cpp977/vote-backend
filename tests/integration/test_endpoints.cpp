@@ -1005,6 +1005,46 @@ TEST_CASE("CreateCategory without language is rejected (400)") {
   CHECK(resp.json_body.contains("error"));
 }
 
+TEST_CASE("GetCategoriesByLanguage returns only English categories") {
+  // Mirrors GetQuestionsByLanguage: the dedicated /categories/lang/{lang}
+  // route must return only categories whose `language` matches the path param.
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories/lang/en", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // Seed data provides 10 English categories.
+  CHECK(resp.json_body.size() == 10);
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["language"] == "en");
+    CHECK(resp.json_body[i].contains("id"));
+    CHECK(resp.json_body[i].contains("name"));
+  }
+}
+
+TEST_CASE("GetCategoriesByLanguage returns only German categories") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories/lang/de", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 10);
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["language"] == "de");
+    CHECK(resp.json_body[i].contains("id"));
+    CHECK(resp.json_body[i].contains("name"));
+  }
+}
+
+TEST_CASE("GetCategoriesByLanguage for unknown language returns empty array") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories/lang/zz", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.empty());
+}
+
 TEST_CASE("CreateCategory with language succeeds (200)") {
   // A well-formed category carrying a valid language code must be accepted.
   // Uses a unique name so it does not collide with the UNIQUE constraint on
