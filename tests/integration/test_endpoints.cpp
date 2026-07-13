@@ -1055,8 +1055,8 @@ TEST_CASE("CreateCategory with language succeeds (200)") {
   body["language"] = "en";
 
   auto resp = test_helpers::http_request(
-      "POST", "127.0.0.1", 8848, "/categories", body.dump(),
-      "application/json", global_fixture.access_token);
+      "POST", "127.0.0.1", 8848, "/categories", body.dump(), "application/json",
+      global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.contains("id"));
   CHECK(resp.json_body.contains("name"));

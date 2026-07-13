@@ -483,7 +483,8 @@ void QuestionController::restSearchQuestions(
   std::string sql =
       "SELECT q.id, q.text, q.language, q.category_id, "
       "c.name AS category_name FROM questions q "
-      "LEFT JOIN categories c ON c.id = q.category_id AND c.language = q.language "
+      "LEFT JOIN categories c ON c.id = q.category_id AND c.language = "
+      "q.language "
       "WHERE 1=1";
   std::vector<std::string> params;
   int idx = 1;
