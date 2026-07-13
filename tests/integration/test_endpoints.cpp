@@ -1198,3 +1198,150 @@ TEST_CASE("UpdateMe requires authentication") {
                                          body.dump(), "application/json", "");
   CHECK(resp.status == 401);
 }
+
+// ---------------------------------------------------------------------------
+// Submission / approval workflow (Option B)
+//
+// A regular user submits a question, which is stored as 'pending' and is NOT
+// visible publicly. Only the submitter (via /questions/mine) and an admin (via
+// the review queue) can see it. An admin approves it -> it becomes visible; an
+// admin rejects it -> it stays hidden. A non-admin cannot approve.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SubmissionWorkflow submit pending approve reject") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // 1. User submits a new question -> 201, stored as 'pending'.
+  nlohmann::json body = {{"text", "Should voting be mandatory?"},
+                         {"category_id", 1},
+                         {"language", "en"}};
+  auto create =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
+                                 body.dump(), "application/json", user_token);
+  CHECK(create.status == 201);
+  CHECK(create.json_body.contains("id"));
+  CHECK(create.json_body["submission_status"] == "pending");
+  int new_id = create.json_body["id"].get<int>();
+
+  // 2. Not visible via the public single-question endpoint (404).
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", user_token);
+  CHECK(get_one.status == 404);
+
+  // 3. Not visible in the public list of questions.
+  auto list = test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions",
+                                         "", "application/json", user_token);
+  CHECK(list.status == 200);
+  bool in_list = false;
+  for (const auto& q : list.json_body) {
+    if (q["id"].get<int>() == new_id) in_list = true;
+  }
+  CHECK_FALSE(in_list);
+
+  // 4. Visible to the submitter via /questions/mine.
+  auto mine =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions/mine",
+                                 "", "application/json", user_token);
+  CHECK(mine.status == 200);
+  bool in_mine = false;
+  for (const auto& q : mine.json_body) {
+    if (q["id"].get<int>() == new_id && q["submission_status"] == "pending") {
+      in_mine = true;
+    }
+  }
+  CHECK(in_mine);
+
+  // 5. Visible to an admin via the review queue.
+  auto queue = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                          "/admin/questions/submissions", "",
+                                          "application/json", admin_token);
+  CHECK(queue.status == 200);
+  bool in_queue = false;
+  for (const auto& q : queue.json_body) {
+    if (q["id"].get<int>() == new_id && q["submission_status"] == "pending") {
+      in_queue = true;
+    }
+  }
+  CHECK(in_queue);
+
+  // 6. A regular user cannot approve (403 from AdminAuthFilter).
+  auto bad_approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", "",
+      "application/json", user_token);
+  CHECK(bad_approve.status == 403);
+
+  // 7. Admin approves -> 200 and the question is now 'approved'.
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", "",
+      "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+
+  // 8. Now publicly visible.
+  auto get_one2 = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", user_token);
+  CHECK(get_one2.status == 200);
+
+  // 9. Reject flow: submit another, admin rejects, stays hidden.
+  nlohmann::json body2 = {{"text", "Should pets be allowed to vote?"},
+                          {"category_id", 1},
+                          {"language", "en"}};
+  auto create2 =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
+                                 body2.dump(), "application/json", user_token);
+  CHECK(create2.status == 201);
+  int new_id2 = create2.json_body["id"].get<int>();
+
+  auto reject = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id2) + "/reject", "",
+      "application/json", admin_token);
+  CHECK(reject.status == 200);
+  CHECK(reject.json_body["submission_status"] == "rejected");
+
+  auto get_rejected = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id2), "",
+      "application/json", user_token);
+  CHECK(get_rejected.status == 404);
+}
+
+TEST_CASE(
+    "SubmissionWorkflow pending question answer options hidden from others") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // A different regular user (not the submitter).
+  auto other_token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "submission_other", "submission_other@example.com",
+      "password123", 1990, "m", "US");
+
+  nlohmann::json body = {{"text", "Is pineapple on pizza acceptable?"},
+                         {"category_id", 1},
+                         {"language", "en"}};
+  auto create =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
+                                 body.dump(), "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // Owner can fetch (empty) answer options for their pending question.
+  auto owner_opts = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", user_token);
+  CHECK(owner_opts.status == 200);
+  CHECK(owner_opts.json_body.is_array());
+
+  // A non-owner must not see them (404 -> pending content stays hidden).
+  auto other_opts = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", other_token);
+  CHECK(other_opts.status == 404);
+}

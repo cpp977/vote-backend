@@ -36,7 +36,8 @@ void QuestionController::getQuestionsWithCategories(
       "       q.min_age, q.created_at, "
       "       c.name AS category_name "
       "FROM questions q "
-      "JOIN categories c ON q.category_id = c.id";
+      "JOIN categories c ON q.category_id = c.id "
+      "WHERE q.submission_status = 'approved'";
 
   dbClient->execSqlAsync(
       sql,
@@ -91,7 +92,7 @@ void QuestionController::searchQuestions(
       "       c.name AS category_name, q.created_at "
       "FROM questions q "
       "JOIN categories c ON q.category_id = c.id "
-      "WHERE q.text ILIKE $1 "
+      "WHERE q.text ILIKE $1 AND q.submission_status = 'approved' "
       "ORDER BY q.created_at DESC";
 
   dbClient->execSqlAsync(
@@ -138,50 +139,62 @@ void QuestionController::getAnswerOptions(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(cb));
 
-  drogon::orm::Mapper<Questions> mapper(dbClient);
-  mapper.findByPrimaryKey(
-      static_cast<int64_t>(questionId),
-      [dbClient, callbackPtr](Questions question) {
-        try {
-          question.getAnswerOptions(
-              dbClient,
-              [callbackPtr](const std::vector<AnswerOptions>& options) {
-                Json::Value arr(Json::arrayValue);
-                for (const auto& option : options) {
-                  arr.append(option.toJson());
-                }
-                (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
-              },
-              [callbackPtr](const DrogonDbException& e) {
-                LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
-                auto resp = HttpResponse::newHttpResponse();
-                resp->setStatusCode(k500InternalServerError);
-                resp->setBody(e.base().what());
-                (*callbackPtr)(resp);
-              });
-        } catch (const std::exception& e) {
-          LOG_ERROR << "getAnswerOptions failed: " << e.what();
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
-        }
-      },
-      [callbackPtr](const DrogonDbException& e) {
-        const drogon::orm::UnexpectedRows* s =
-            dynamic_cast<const drogon::orm::UnexpectedRows*>(&e.base());
-        if (s) {
+  int64_t user_id = req->attributes()->get<int64_t>("user_id");
+
+  // Resolve the question and its visibility first. Unapproved questions are
+  // only visible to their submitter; everyone else (including non-owner
+  // regular users) gets 404 so pending content never leaks.
+  *dbClient << "SELECT id, submission_status, submitted_by "
+               "FROM questions WHERE id = $1::bigint"
+            << static_cast<int64_t>(questionId) >>
+      [dbClient, callbackPtr, user_id](const Result& r) {
+        if (r.empty()) {
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k404NotFound);
           (*callbackPtr)(resp);
           return;
         }
+        const std::string status = r[0]["submission_status"].as<std::string>();
+        bool owner = (!r[0]["submitted_by"].isNull() &&
+                      r[0]["submitted_by"].as<long long>() == user_id);
+        if (status != "approved" && !owner) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        // Visible: load the answer options.
+        *dbClient << "SELECT id, question_id, text FROM answer_options "
+                     "WHERE question_id = $1::bigint ORDER BY id"
+                  << static_cast<int64_t>(r[0]["id"].as<long long>()) >>
+            [callbackPtr](const Result& opts) {
+              Json::Value arr(Json::arrayValue);
+              for (const auto& row : opts) {
+                Json::Value o;
+                o["id"] = Json::Value(
+                    static_cast<Json::Int64>(row["id"].as<long long>()));
+                o["question_id"] = Json::Value(static_cast<Json::Int64>(
+                    row["question_id"].as<long long>()));
+                o["text"] = row["text"].as<std::string>();
+                arr.append(o);
+              }
+              (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+            } >>
+            [callbackPtr](const DrogonDbException& e) {
+              LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
+              auto resp = HttpResponse::newHttpResponse();
+              resp->setStatusCode(k500InternalServerError);
+              resp->setBody(e.base().what());
+              (*callbackPtr)(resp);
+            };
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
         (*callbackPtr)(resp);
-      });
+      };
 }
 
 void QuestionController::getQuestionsByLanguage(
@@ -198,7 +211,7 @@ void QuestionController::getQuestionsByLanguage(
       "       c.name AS category_name "
       "FROM questions q "
       "JOIN categories c ON q.category_id = c.id "
-      "WHERE q.language = $1";
+      "WHERE q.language = $1 AND q.submission_status = 'approved'";
 
   dbClient->execSqlAsync(
       sql,
@@ -250,7 +263,9 @@ void QuestionController::getStats(
       "       COUNT(ua.id) AS cnt "
       "FROM user_answers ua "
       "JOIN answer_options ao ON ua.answer_id = ao.id "
-      "WHERE ua.question_id = $1";
+      "WHERE ua.question_id = $1 "
+      "  AND (SELECT submission_status FROM questions WHERE id = $1) = "
+      "'approved'";
   if (filterTags) {
     // JSONB existence and equality operators.
     sql += " AND ua.tags ? $2::text AND ua.tags->>$2 = $3";
@@ -485,7 +500,7 @@ void QuestionController::restSearchQuestions(
       "c.name AS category_name FROM questions q "
       "LEFT JOIN categories c ON c.id = q.category_id AND c.language = "
       "q.language "
-      "WHERE 1=1";
+      "WHERE 1=1 AND q.submission_status = 'approved'";
   std::vector<std::string> params;
   int idx = 1;
 
@@ -624,70 +639,100 @@ void QuestionController::answerQuestion(
           std::move(callback));
   int64_t qid = static_cast<int64_t>(questionId);
 
-  // Perform both inserts atomically so a failure leaves no half-written state:
-  //   - question_user insert enforces "one answer per user". We use
-  //     ON CONFLICT DO NOTHING and inspect the affected row count: a count of
-  //     0 means the (question_id, hash_user_id) pair already exists, i.e. the
-  //     user has already answered.
-  //   - user_answers insert only happens if the answer option actually belongs
-  //     to the question.
-  dbClient->newTransactionAsync([=](const std::shared_ptr<
-                                    drogon::orm::Transaction>& trans) {
-    if (!trans) {
-      Json::Value err;
-      err["error"] = "database timeout";
-      auto resp = HttpResponse::newHttpJsonResponse(err);
-      resp->setStatusCode(k500InternalServerError);
-      (*callbackPtr)(resp);
-      return;
-    }
+  // Only *approved* questions can be answered. Pending/rejected submissions
+  // must not be reachable for answering; 404 keeps their existence hidden.
+  *dbClient << "SELECT submission_status FROM questions WHERE id = $1::bigint"
+            << qid >>
+      [=](const Result& r) {
+        if (r.empty() ||
+            r[0]["submission_status"].as<std::string>() != "approved") {
+          Json::Value err;
+          err["error"] = "Question not found";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
 
-    *trans << "INSERT INTO question_user (question_id, hash_user_id) "
-              "VALUES ($1::bigint, $2::text) "
-              "ON CONFLICT (question_id, hash_user_id) DO NOTHING"
-           << qid << hash_user_id >>
-        [=](const Result& r) {
-          if (r.affectedRows() == 0) {
-            // The user has already answered this question.
-            trans->rollback();
+        // Perform both inserts atomically so a failure leaves no half-written
+        // state:
+        //   - question_user insert enforces "one answer per user". We use
+        //     ON CONFLICT DO NOTHING and inspect the affected row count: a
+        //     count of 0 means the (question_id, hash_user_id) pair already
+        //     exists, i.e. the user has already answered.
+        //   - user_answers insert only happens if the answer option actually
+        //     belongs to the question.
+        dbClient->newTransactionAsync([=](const std::shared_ptr<
+                                          drogon::orm::Transaction>& trans) {
+          if (!trans) {
             Json::Value err;
-            err["error"] = "You have already answered this question";
+            err["error"] = "database timeout";
             auto resp = HttpResponse::newHttpJsonResponse(err);
-            resp->setStatusCode(k409Conflict);
+            resp->setStatusCode(k500InternalServerError);
             (*callbackPtr)(resp);
             return;
           }
-          *trans << "INSERT INTO user_answers (question_id, answer_id, tags) "
-                    "SELECT $1::bigint, $2::bigint, "
-                    "COALESCE($3::jsonb, '{}'::jsonb) "
-                    "WHERE EXISTS (SELECT 1 FROM answer_options ao "
-                    "WHERE ao.id = $2::bigint AND ao.question_id = $1::bigint) "
-                    "RETURNING id"
-                 << qid << answer_id << tags_json >>
+
+          *trans << "INSERT INTO question_user (question_id, hash_user_id) "
+                    "VALUES ($1::bigint, $2::text) "
+                    "ON CONFLICT (question_id, hash_user_id) DO NOTHING"
+                 << qid << hash_user_id >>
               [=](const Result& r) {
-                if (r.size() == 0) {
-                  // The answer option does not belong to this question.
+                if (r.affectedRows() == 0) {
+                  // The user has already answered this question.
                   trans->rollback();
                   Json::Value err;
-                  err["error"] =
-                      "answer_id does not belong to the given question";
+                  err["error"] = "You have already answered this question";
                   auto resp = HttpResponse::newHttpJsonResponse(err);
-                  resp->setStatusCode(k400BadRequest);
+                  resp->setStatusCode(k409Conflict);
                   (*callbackPtr)(resp);
                   return;
                 }
-                Json::Value ret;
-                ret["id"] =
-                    static_cast<Json::Int64>(r[0]["id"].as<long long>());
-                ret["question_id"] = static_cast<Json::Int64>(qid);
-                ret["answer_id"] = static_cast<Json::Int64>(answer_id);
-                auto resp = HttpResponse::newHttpJsonResponse(ret);
-                resp->setStatusCode(k201Created);
-                trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
+                *trans << "INSERT INTO user_answers (question_id, answer_id, "
+                          "tags) "
+                          "SELECT $1::bigint, $2::bigint, "
+                          "COALESCE($3::jsonb, '{}'::jsonb) "
+                          "WHERE EXISTS (SELECT 1 FROM answer_options ao "
+                          "WHERE ao.id = $2::bigint AND ao.question_id = "
+                          "$1::bigint) "
+                          "RETURNING id"
+                       << qid << answer_id << tags_json >>
+                    [=](const Result& r) {
+                      if (r.size() == 0) {
+                        // The answer option does not belong to this question.
+                        trans->rollback();
+                        Json::Value err;
+                        err["error"] =
+                            "answer_id does not belong to the given question";
+                        auto resp = HttpResponse::newHttpJsonResponse(err);
+                        resp->setStatusCode(k400BadRequest);
+                        (*callbackPtr)(resp);
+                        return;
+                      }
+                      Json::Value ret;
+                      ret["id"] =
+                          static_cast<Json::Int64>(r[0]["id"].as<long long>());
+                      ret["question_id"] = static_cast<Json::Int64>(qid);
+                      ret["answer_id"] = static_cast<Json::Int64>(answer_id);
+                      auto resp = HttpResponse::newHttpJsonResponse(ret);
+                      resp->setStatusCode(k201Created);
+                      trans->setCommitCallback(
+                          [=](bool) { (*callbackPtr)(resp); });
+                    } >>
+                    [=](const DrogonDbException& e) {
+                      trans->rollback();
+                      LOG_ERROR << "answerQuestion user_answers insert failed: "
+                                << e.base().what();
+                      Json::Value err;
+                      err["error"] = "database error";
+                      auto resp = HttpResponse::newHttpJsonResponse(err);
+                      resp->setStatusCode(k500InternalServerError);
+                      (*callbackPtr)(resp);
+                    };
               } >>
               [=](const DrogonDbException& e) {
                 trans->rollback();
-                LOG_ERROR << "answerQuestion user_answers insert failed: "
+                LOG_ERROR << "answerQuestion question_user insert failed: "
                           << e.base().what();
                 Json::Value err;
                 err["error"] = "database error";
@@ -695,16 +740,208 @@ void QuestionController::answerQuestion(
                 resp->setStatusCode(k500InternalServerError);
                 (*callbackPtr)(resp);
               };
-        } >>
-        [=](const DrogonDbException& e) {
-          trans->rollback();
-          LOG_ERROR << "answerQuestion question_user insert failed: "
-                    << e.base().what();
-          Json::Value err;
-          err["error"] = "database error";
-          auto resp = HttpResponse::newHttpJsonResponse(err);
-          resp->setStatusCode(k500InternalServerError);
+        });  // end newTransactionAsync
+      }  // end status-check success lambda
+      >>
+      [=](const DrogonDbException& e) {
+        LOG_ERROR << "answerQuestion status check failed: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+namespace {
+// Serialize a questions row (including the submission-workflow columns) to
+// JSON for the "my submissions" and admin review-queue endpoints.
+Json::Value submissionToJson(const drogon::orm::Row& row) {
+  Json::Value q;
+  q["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
+  q["text"] = row["text"].as<std::string>();
+  q["category_id"] =
+      Json::Value(static_cast<Json::Int64>(row["category_id"].as<long long>()));
+  q["language"] = row["language"].as<std::string>();
+  q["min_age"] =
+      Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
+  q["created_at"] = row["created_at"].as<std::string>();
+  if (!row["submission_status"].isNull()) {
+    q["submission_status"] = row["submission_status"].as<std::string>();
+  }
+  if (!row["submitted_by"].isNull()) {
+    q["submitted_by"] = Json::Value(
+        static_cast<Json::Int64>(row["submitted_by"].as<long long>()));
+  }
+  if (!row["reviewed_by"].isNull()) {
+    q["reviewed_by"] = Json::Value(
+        static_cast<Json::Int64>(row["reviewed_by"].as<long long>()));
+  }
+  return q;
+}
+}  // namespace
+
+void QuestionController::getMySubmissions(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+  int64_t user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
+    Json::Value err;
+    err["error"] = "Unauthenticated";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
+               "submission_status, submitted_by, reviewed_by "
+               "FROM questions "
+               "WHERE submitted_by = $1::bigint "
+               "ORDER BY created_at DESC"
+            << user_id >>
+      [callbackPtr](const Result& r) {
+        Json::Value arr(Json::arrayValue);
+        for (const auto& row : r) {
+          arr.append(submissionToJson(row));
+        }
+        (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "getMySubmissions DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::listSubmissions(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  auto handle = [callbackPtr](const Result& r) {
+    Json::Value arr(Json::arrayValue);
+    for (const auto& row : r) {
+      arr.append(submissionToJson(row));
+    }
+    (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+  };
+  auto onError = [callbackPtr](const DrogonDbException& e) {
+    LOG_ERROR << "listSubmissions DB error: " << e.base().what();
+    Json::Value err;
+    err["error"] = "database error";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k500InternalServerError);
+    (*callbackPtr)(resp);
+  };
+
+  // Optional ?status=pending|rejected filter; otherwise the full review queue
+  // (everything that is not yet approved) is returned.
+  std::string status = req->getParameter("status");
+  if (!status.empty() && (status == "pending" || status == "rejected")) {
+    *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
+                 "submission_status, submitted_by, reviewed_by "
+                 "FROM questions "
+                 "WHERE submission_status = $1::text "
+                 "ORDER BY created_at DESC"
+              << status >>
+        handle >> onError;
+  } else {
+    *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
+                 "submission_status, submitted_by, reviewed_by "
+                 "FROM questions "
+                 "WHERE submission_status <> 'approved' "
+                 "ORDER BY created_at DESC" >>
+        handle >> onError;
+  }
+}
+
+void QuestionController::approveQuestion(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int questionId) {
+  // Reviewed-by is taken from the verified admin JWT; clients cannot forge it.
+  int64_t admin_id = req->attributes()->get<int64_t>("user_id");
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  *dbClient << "UPDATE questions "
+               "SET submission_status = 'approved', "
+               "    reviewed_by = $2::bigint, "
+               "    reviewed_at = NOW() "
+               "WHERE id = $1::bigint "
+               "RETURNING id, text, category_id, language, min_age, "
+               "created_at, submission_status, submitted_by, reviewed_by"
+            << static_cast<int64_t>(questionId) << admin_id >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
           (*callbackPtr)(resp);
-        };
-  });
+          return;
+        }
+        (*callbackPtr)(
+            HttpResponse::newHttpJsonResponse(submissionToJson(r[0])));
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "approveQuestion DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::rejectQuestion(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int questionId) {
+  int64_t admin_id = req->attributes()->get<int64_t>("user_id");
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  *dbClient << "UPDATE questions "
+               "SET submission_status = 'rejected', "
+               "    reviewed_by = $2::bigint, "
+               "    reviewed_at = NOW() "
+               "WHERE id = $1::bigint "
+               "RETURNING id, text, category_id, language, min_age, "
+               "created_at, submission_status, submitted_by, reviewed_by"
+            << static_cast<int64_t>(questionId) << admin_id >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        (*callbackPtr)(
+            HttpResponse::newHttpJsonResponse(submissionToJson(r[0])));
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "rejectQuestion DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
 }

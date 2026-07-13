@@ -30,7 +30,22 @@ CREATE TABLE questions (
     category_id BIGINT NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
     language CHAR(2) NOT NULL REFERENCES languages(code) ON DELETE RESTRICT,
     min_age INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Submission / approval workflow (Option B):
+    -- New questions from regular users are inserted with submission_status =
+    -- 'pending' and only become visible to the public once an admin sets them
+    -- to 'approved'. 'rejected' keeps the row (for audit / feedback) without
+    -- exposing it publicly. Seed / admin-created content defaults to
+    -- 'approved' so existing data is unaffected.
+    submission_status TEXT NOT NULL DEFAULT 'approved'
+        CHECK (submission_status IN ('pending', 'approved', 'rejected')),
+    -- User who submitted the question (NULL for seed / admin-approved content).
+    -- The foreign key is added in 002_auth.sql because the users table is
+    -- created there, which runs after this file.
+    submitted_by BIGINT,
+    -- Admin who approved / rejected the submission (NULL until reviewed).
+    reviewed_by  BIGINT,
+    reviewed_at  TIMESTAMPTZ
 );
 
 -- Enable pg_trgm extension for efficient LIKE/ILIKE searches

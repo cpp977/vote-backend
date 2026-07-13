@@ -22,6 +22,19 @@ class QuestionController : public drogon::HttpController<QuestionController> {
                 "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::answerQuestion, "/questions/{1}/answer",
                 drogon::Post, drogon::Options, "JwtAuthFilter");
+  // Submission workflow (Option B): a user sees only their own submissions;
+  // an admin sees the full review queue and can approve / reject.
+  ADD_METHOD_TO(QuestionController::getMySubmissions, "/questions/mine",
+                drogon::Get, drogon::Options, "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::listSubmissions,
+                "/admin/questions/submissions", drogon::Get, drogon::Options,
+                "AdminAuthFilter");
+  ADD_METHOD_TO(QuestionController::approveQuestion,
+                "/admin/questions/{1}/approve", drogon::Post, drogon::Options,
+                "AdminAuthFilter");
+  ADD_METHOD_TO(QuestionController::rejectQuestion,
+                "/admin/questions/{1}/reject", drogon::Post, drogon::Options,
+                "AdminAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -44,6 +57,24 @@ class QuestionController : public drogon::HttpController<QuestionController> {
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
   void answerQuestion(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                      int questionId);
+
+  // --- Submission workflow (Option B) -------------------------------------
+  // GET /questions/mine: the authenticated user's own submissions (any status).
+  void getMySubmissions(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  // GET /admin/questions/submissions: review queue of non-approved questions.
+  void listSubmissions(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  // POST /admin/questions/{1}/approve: mark a submission as approved.
+  void approveQuestion(const drogon::HttpRequestPtr& req,
+                       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                       int questionId);
+  // POST /admin/questions/{1}/reject: mark a submission as rejected.
+  void rejectQuestion(const drogon::HttpRequestPtr& req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                       int questionId);
 };
