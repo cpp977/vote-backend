@@ -1218,9 +1218,9 @@ TEST_CASE("SubmissionWorkflow submit pending approve reject") {
   nlohmann::json body = {{"text", "Should voting be mandatory?"},
                          {"category_id", 1},
                          {"language", "en"}};
-  auto create =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
-                                 body.dump(), "application/json", user_token);
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
   CHECK(create.status == 201);
   CHECK(create.json_body.contains("id"));
   CHECK(create.json_body["submission_status"] == "pending");
@@ -1293,9 +1293,9 @@ TEST_CASE("SubmissionWorkflow submit pending approve reject") {
   nlohmann::json body2 = {{"text", "Should pets be allowed to vote?"},
                           {"category_id", 1},
                           {"language", "en"}};
-  auto create2 =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
-                                 body2.dump(), "application/json", user_token);
+  auto create2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body2.dump(),
+      "application/json", user_token);
   CHECK(create2.status == 201);
   int new_id2 = create2.json_body["id"].get<int>();
 
@@ -1324,9 +1324,9 @@ TEST_CASE(
   nlohmann::json body = {{"text", "Is pineapple on pizza acceptable?"},
                          {"category_id", 1},
                          {"language", "en"}};
-  auto create =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/questions",
-                                 body.dump(), "application/json", user_token);
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
   CHECK(create.status == 201);
   int new_id = create.json_body["id"].get<int>();
 

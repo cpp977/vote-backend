@@ -22,26 +22,19 @@ class RestfulQuestionsCtrl: public drogon::HttpController<RestfulQuestionsCtrl>,
 {
   public:
     METHOD_LIST_BEGIN
-    ADD_METHOD_TO(RestfulQuestionsCtrl::getOne,"/questions/{1}",Get,Options,"JwtAuthFilter");
     ADD_METHOD_TO(RestfulQuestionsCtrl::updateOne,"/questions/{1}",Put,Options,"JwtAuthFilter");
     ADD_METHOD_TO(RestfulQuestionsCtrl::deleteOne,"/questions/{1}",Delete,Options,"JwtAuthFilter");
-    ADD_METHOD_TO(RestfulQuestionsCtrl::get,"/questions",Get,Options,"JwtAuthFilter");
-    ADD_METHOD_TO(RestfulQuestionsCtrl::create,"/questions",Post,Options,"JwtAuthFilter");
+    // The non-generated GET/POST handlers (get, getOne, create) were moved to
+    // QuestionController so this generated controller can eventually be
+    // retired.
     //ADD_METHOD_TO(RestfulQuestionsCtrl::update,"/questions",Put,Options,"JwtAuthFilter");
     METHOD_LIST_END
      
-    void getOne(const HttpRequestPtr &req,
-                std::function<void(const HttpResponsePtr &)> &&callback,
-                Questions::PrimaryKeyType &&id);
     void updateOne(const HttpRequestPtr &req,
                    std::function<void(const HttpResponsePtr &)> &&callback,
                    Questions::PrimaryKeyType &&id);
     void deleteOne(const HttpRequestPtr &req,
                    std::function<void(const HttpResponsePtr &)> &&callback,
                    Questions::PrimaryKeyType &&id);
-    void get(const HttpRequestPtr &req,
-             std::function<void(const HttpResponsePtr &)> &&callback);
-    void create(const HttpRequestPtr &req,
-             std::function<void(const HttpResponsePtr &)> &&callback);
 
 };

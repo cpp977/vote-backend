@@ -6,11 +6,13 @@
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Exception.h>
 #include <drogon/orm/Mapper.h>
+#include <drogon/utils/Utilities.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <json/json.h>
 #include <trantor/utils/Logger.h>
 
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -22,6 +24,34 @@ using drogon::orm::DrogonDbException;
 using drogon::orm::Result;
 using namespace drogon;
 using namespace drogon_model::vote;
+
+namespace {
+// Columns allowed in an ORDER BY clause (whitelisted to prevent SQL injection
+// via the `sort` query parameter).
+const std::set<std::string> kSortableColumns = {
+    "id", "text", "category_id", "language", "min_age", "created_at"};
+
+// Serialize a questions row (with the submission columns) to JSON.
+Json::Value questionToJson(const drogon::orm::Row& row) {
+  Json::Value q;
+  q["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
+  q["text"] = row["text"].as<std::string>();
+  q["category_id"] =
+      Json::Value(static_cast<Json::Int64>(row["category_id"].as<long long>()));
+  q["language"] = row["language"].as<std::string>();
+  q["min_age"] =
+      Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
+  q["created_at"] = row["created_at"].as<std::string>();
+  if (!row["submission_status"].isNull()) {
+    q["submission_status"] = row["submission_status"].as<std::string>();
+  }
+  if (!row["submitted_by"].isNull()) {
+    q["submitted_by"] = Json::Value(
+        static_cast<Json::Int64>(row["submitted_by"].as<long long>()));
+  }
+  return q;
+}
+}  // namespace
 
 void QuestionController::getQuestionsWithCategories(
     const drogon::HttpRequestPtr& req,
@@ -938,6 +968,218 @@ void QuestionController::rejectQuestion(
       } >>
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << "rejectQuestion DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::getOne(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback, int questionId) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Public endpoint: only approved questions are visible.
+  *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
+               "submission_status, submitted_by "
+               "FROM questions "
+               "WHERE id = $1::bigint AND submission_status = 'approved'"
+            << static_cast<int64_t>(questionId) >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        (*callbackPtr)(HttpResponse::newHttpJsonResponse(questionToJson(r[0])));
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "QuestionController::getOne DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::get(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Public endpoint: only approved questions are visible.
+  std::string sql =
+      "SELECT id, text, category_id, language, min_age, created_at, "
+      "submission_status, submitted_by "
+      "FROM questions "
+      "WHERE submission_status = 'approved'";
+
+  // ORDER BY (whitelisted columns only).
+  std::string orderBy = " ORDER BY created_at DESC";
+  auto& parameters = req->parameters();
+  auto it = parameters.find("sort");
+  if (it != parameters.end() && !it->second.empty()) {
+    auto fields = drogon::utils::splitString(it->second, ",");
+    std::string ob;
+    for (auto& field : fields) {
+      if (field.empty()) continue;
+      std::string dir = "ASC";
+      std::string col = field;
+      if (col[0] == '+') {
+        col = col.substr(1);
+      } else if (col[0] == '-') {
+        col = col.substr(1);
+        dir = "DESC";
+      }
+      if (kSortableColumns.count(col)) {
+        if (!ob.empty()) ob += ", ";
+        ob += col + " " + dir;
+      }
+    }
+    if (!ob.empty()) orderBy = " ORDER BY " + ob;
+  }
+  sql += orderBy;
+
+  // LIMIT / OFFSET (integers parsed from query parameters, safe to inline).
+  long long limit = -1;
+  long long offset = 0;
+  it = parameters.find("limit");
+  if (it != parameters.end()) {
+    try {
+      limit = std::stoll(it->second);
+    } catch (...) {
+    }
+  }
+  it = parameters.find("offset");
+  if (it != parameters.end()) {
+    try {
+      offset = std::stoll(it->second);
+    } catch (...) {
+    }
+  }
+  if (offset > 0) sql += " OFFSET " + std::to_string(offset);
+  if (limit > 0) sql += " LIMIT " + std::to_string(limit);
+
+  *dbClient << sql >> [callbackPtr](const Result& r) {
+    Json::Value arr(Json::arrayValue);
+    for (const auto& row : r) {
+      arr.append(questionToJson(row));
+    }
+    (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+  } >> [callbackPtr](const DrogonDbException& e) {
+    LOG_ERROR << "QuestionController::get DB error: " << e.base().what();
+    Json::Value err;
+    err["error"] = "database error";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k500InternalServerError);
+    (*callbackPtr)(resp);
+  };
+}
+
+void QuestionController::submitQuestion(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto jsonPtr = req->jsonObject();
+  if (!jsonPtr) {
+    Json::Value err;
+    err["error"] = "No json object is found in the request";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  // --- Validation (mirrors the generated model rules) -----------------------
+  if (!(*jsonPtr).isMember("text") || !(*jsonPtr)["text"].isString() ||
+      (*jsonPtr)["text"].asString().empty()) {
+    Json::Value err;
+    err["error"] = "Field 'text' (string, non-empty) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  if (!(*jsonPtr).isMember("category_id") ||
+      !(*jsonPtr)["category_id"].isIntegral()) {
+    Json::Value err;
+    err["error"] = "Field 'category_id' (integer) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  if (!(*jsonPtr).isMember("language") || !(*jsonPtr)["language"].isString() ||
+      (*jsonPtr)["language"].asString().size() != 2) {
+    Json::Value err;
+    err["error"] = "Field 'language' (2-char code) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  int min_age = 0;
+  if ((*jsonPtr).isMember("min_age") && (*jsonPtr)["min_age"].isIntegral()) {
+    min_age = (*jsonPtr)["min_age"].asInt();
+  }
+  if (min_age < 0) min_age = 0;
+
+  // The submitter is taken from the verified JWT, never from the request body,
+  // so a user cannot forge ownership or self-approve.
+  int64_t user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
+    Json::Value err;
+    err["error"] = "Unauthenticated";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  const std::string text = (*jsonPtr)["text"].asString();
+  const int64_t category_id = (*jsonPtr)["category_id"].as<int64_t>();
+  const std::string language = (*jsonPtr)["language"].asString();
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Insert as a *pending* submission owned by the current user. The
+  // submission_status literal is a server constant; clients cannot override it.
+  *dbClient << "INSERT INTO questions (text, category_id, language, min_age, "
+               "submission_status, submitted_by) "
+               "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, 'pending', "
+               "$5::bigint) "
+               "RETURNING id, text, category_id, language, min_age, "
+               "created_at, submission_status, submitted_by"
+            << text << category_id << language << min_age << user_id >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          Json::Value err;
+          err["error"] = "database error";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k500InternalServerError);
+          (*callbackPtr)(resp);
+          return;
+        }
+        auto resp = HttpResponse::newHttpJsonResponse(questionToJson(r[0]));
+        resp->setStatusCode(k201Created);
+        (*callbackPtr)(resp);
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "QuestionController::submitQuestion DB error: "
+                  << e.base().what();
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);

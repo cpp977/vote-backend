@@ -5,6 +5,15 @@
 class QuestionController : public drogon::HttpController<QuestionController> {
  public:
   METHOD_LIST_BEGIN
+  // Standard REST endpoints for /questions (moved from the generated
+  // RestfulQuestionsCtrl so the generated controller can eventually be
+  // retired).
+  ADD_METHOD_TO(QuestionController::get, "/questions", drogon::Get,
+                drogon::Options, "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::getOne, "/questions/{1}", drogon::Get,
+                drogon::Options, "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::submitQuestion, "/questions/submissions",
+                drogon::Post, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getStats, "/questions/{1}/stats",
                 drogon::Get, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getAnswerOptions, "/questions/{1}/answers",
@@ -77,4 +86,17 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void rejectQuestion(const drogon::HttpRequestPtr& req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                       int questionId);
+
+  // --- Standard REST endpoints (moved from the generated RestfulQuestionsCtrl)
+  // GET /questions: list approved questions (public; requires a valid token).
+  void get(const drogon::HttpRequestPtr& req,
+           std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  // GET /questions/{1}: fetch a single approved question by id.
+  void getOne(const drogon::HttpRequestPtr& req,
+              std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+              int questionId);
+  // POST /questions/submissions: create a *pending* submission owned by the
+  // caller; it is not publicly visible until an admin approves it.
+  void submitQuestion(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
 };
