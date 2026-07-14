@@ -1214,16 +1214,29 @@ TEST_CASE("SubmissionWorkflow submit pending approve reject") {
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
 
-  // 1. User submits a new question -> 201, stored as 'pending'.
+  // 1. User submits a new question together with its answer options -> 201,
+  // stored as 'pending', and the answer options are returned with it.
   nlohmann::json body = {{"text", "Should voting be mandatory?"},
                          {"category_id", 1},
-                         {"language", "en"}};
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No", "Abstain"}}};
   auto create = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
       "application/json", user_token);
   CHECK(create.status == 201);
   CHECK(create.json_body.contains("id"));
   CHECK(create.json_body["submission_status"] == "pending");
+  // The submission must echo back its answer options (id, question_id, text).
+  CHECK(create.json_body.contains("answer_options"));
+  CHECK(create.json_body["answer_options"].is_array());
+  CHECK(create.json_body["answer_options"].size() == 3);
+  for (size_t i = 0; i < create.json_body["answer_options"].size(); ++i) {
+    CHECK(create.json_body["answer_options"][i].contains("id"));
+    CHECK(create.json_body["answer_options"][i].contains("question_id"));
+    CHECK(create.json_body["answer_options"][i].contains("text"));
+    CHECK(create.json_body["answer_options"][i]["question_id"] ==
+          create.json_body["id"]);
+  }
   int new_id = create.json_body["id"].get<int>();
 
   // 2. Not visible via the public single-question endpoint (404).
@@ -1289,14 +1302,18 @@ TEST_CASE("SubmissionWorkflow submit pending approve reject") {
       "application/json", user_token);
   CHECK(get_one2.status == 200);
 
-  // 9. Reject flow: submit another, admin rejects, stays hidden.
+  // 9. Reject flow: submit another (with answer options), admin rejects,
+  // stays hidden.
   nlohmann::json body2 = {{"text", "Should pets be allowed to vote?"},
                           {"category_id", 1},
-                          {"language", "en"}};
+                          {"language", "en"},
+                          {"answer_options", {"Yes", "No"}}};
   auto create2 = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/submissions", body2.dump(),
       "application/json", user_token);
   CHECK(create2.status == 201);
+  CHECK(create2.json_body.contains("answer_options"));
+  CHECK(create2.json_body["answer_options"].size() == 2);
   int new_id2 = create2.json_body["id"].get<int>();
 
   auto reject = test_helpers::http_request(
@@ -1323,20 +1340,24 @@ TEST_CASE(
 
   nlohmann::json body = {{"text", "Is pineapple on pizza acceptable?"},
                          {"category_id", 1},
-                         {"language", "en"}};
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No", "It depends"}}};
   auto create = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
       "application/json", user_token);
   CHECK(create.status == 201);
+  CHECK(create.json_body["answer_options"].size() == 3);
   int new_id = create.json_body["id"].get<int>();
 
-  // Owner can fetch (empty) answer options for their pending question.
+  // Owner can fetch the answer options for their pending question.
   auto owner_opts = test_helpers::http_request(
       "GET", "127.0.0.1", 8848,
       "/questions/" + std::to_string(new_id) + "/answers", "",
       "application/json", user_token);
   CHECK(owner_opts.status == 200);
   CHECK(owner_opts.json_body.is_array());
+  CHECK(owner_opts.json_body.size() == 3);
+  CHECK(owner_opts.json_body[0]["text"] == "Yes");
 
   // A non-owner must not see them (404 -> pending content stays hidden).
   auto other_opts = test_helpers::http_request(
@@ -1344,4 +1365,89 @@ TEST_CASE(
       "/questions/" + std::to_string(new_id) + "/answers", "",
       "application/json", other_token);
   CHECK(other_opts.status == 404);
+}
+
+TEST_CASE("SubmissionWorkflow requires answer_options") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  // 1. Missing answer_options -> 400.
+  nlohmann::json missing = {{"text", "What is your favorite color?"},
+                            {"category_id", 1},
+                            {"language", "en"}};
+  auto r1 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                       "/questions/submissions", missing.dump(),
+                                       "application/json", user_token);
+  CHECK(r1.status == 400);
+  CHECK(r1.json_body.contains("error"));
+
+  // 2. Empty answer_options array -> 400.
+  nlohmann::json empty = {{"text", "What is your favorite color?"},
+                          {"category_id", 1},
+                          {"language", "en"},
+                          {"answer_options", nlohmann::json::array()}};
+  auto r2 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                       "/questions/submissions", empty.dump(),
+                                       "application/json", user_token);
+  CHECK(r2.status == 400);
+  CHECK(r2.json_body.contains("error"));
+
+  // 3. Answer option without a non-empty text -> 400.
+  nlohmann::json bad = {{"text", "What is your favorite color?"},
+                        {"category_id", 1},
+                        {"language", "en"},
+                        {"answer_options", {""}}};
+  auto r3 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                       "/questions/submissions", bad.dump(),
+                                       "application/json", user_token);
+  CHECK(r3.status == 400);
+  CHECK(r3.json_body.contains("error"));
+}
+
+TEST_CASE(
+    "SubmissionWorkflow answer options persisted and visible after approval") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json body = {{"text", "How often do you drink coffee?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Never", "Daily"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // Before approval the answer options are not publicly visible.
+  auto public_opts = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", user_token);
+  CHECK(public_opts.status == 200);
+  CHECK(public_opts.json_body.is_array());
+
+  // Admin approves -> answer options become publicly visible.
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", "",
+      "application/json", admin_token);
+  CHECK(approve.status == 200);
+
+  auto visible = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", user_token);
+  CHECK(visible.status == 200);
+  CHECK(visible.json_body.is_array());
+  CHECK(visible.json_body.size() == 2);
+  std::set<std::string> texts;
+  for (const auto& o : visible.json_body) {
+    texts.insert(o["text"].get<std::string>());
+    CHECK(o["question_id"] == new_id);
+  }
+  CHECK(texts.count("Never") == 1);
+  CHECK(texts.count("Daily") == 1);
 }

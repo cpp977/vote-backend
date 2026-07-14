@@ -28,9 +28,9 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **PUT** | `/me` | Same as `PATCH /me` – update the authenticated user's own profile (partial update accepted). | Bearer access token | JSON object with any subset of `email`, `gender`, `password` (see `PATCH /me`). | *200 OK* – updated user object. Errors: 400, 401, 404, 409, 500. |
 | **GET** | `/questions` | Retrieve all voting questions. | Bearer access token | – | *200 OK* – array of question objects. |
 | **GET** | `/questions/{id}` | Retrieve a single question by its UUID. | Bearer access token | – | *200 OK* – question object or 404. |
-| **POST** | `/questions/submissions` | Submit a new question for review. Creates a *pending* submission owned by the caller; an admin must approve it (`POST /admin/questions/{id}/approve`) before it becomes publicly visible. | Bearer access token | ```json
-{ "text": "string", "category_id": 1, "language": "en", "min_age": 0 }
-``` | *201 Created* – created submission (`submission_status: "pending"`). |
+| **POST** | `/questions/submissions` | Submit a new question **together with its answer options** for review. The question and all its `answer_options` are inserted atomically inside a single transaction, so a failure never leaves a partial record. Creates a *pending* submission owned by the caller; an admin must approve it (`POST /admin/questions/{id}/approve`) before it becomes publicly visible. | Bearer access token | ```json
+{ "text": "string", "category_id": 1, "language": "en", "min_age": 0, "answer_options": [ "Option A", "Option B", { "text": "Option C" } ] }
+``` | *201 Created* – created submission (`submission_status: "pending"`) plus its `answer_options` array (`[{ "id": <int>, "question_id": <int>, "text": "string" }, ...]`). `answer_options` is **required** and must contain at least one entry (max 50); each entry is a string or an object with a non‑empty `text`. Errors: 400 (missing/invalid fields, or missing/empty/too many `answer_options`), 401 (unauthenticated), 500 (DB error). |
 | **POST** | `/questions/{id}/answers` | Submit an answer for a question. | Bearer access token | ```json
 { "answer": "string" }
 ``` | *201 Created* – answer record. |

@@ -15,6 +15,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "vote-backend/models/AnswerOptions.h"
 #include "vote-backend/models/Questions.h"
@@ -1134,6 +1135,72 @@ void QuestionController::submitQuestion(
   }
   if (min_age < 0) min_age = 0;
 
+  // --- Answer options (required, non-empty) ---------------------------------
+  // Each option is either a plain string or an object carrying a non-empty
+  // "text". We normalize them to a list of texts and persist them in the
+  // answer_options table pointing at the newly created question, so a question
+  // is always submitted together with the options it can be voted on.
+  if (!(*jsonPtr).isMember("answer_options") ||
+      !(*jsonPtr)["answer_options"].isArray()) {
+    Json::Value err;
+    err["error"] =
+        "Field 'answer_options' (array of strings or objects) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  const auto& answerOptions = (*jsonPtr)["answer_options"];
+  // A question without any answer option cannot be voted on, so require at
+  // least one. The upper bound guards against unreasonably large payloads.
+  constexpr size_t kMaxAnswerOptions = 50;
+  if (answerOptions.empty()) {
+    Json::Value err;
+    err["error"] = "Field 'answer_options' must contain at least one entry";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  if (answerOptions.size() > kMaxAnswerOptions) {
+    Json::Value err;
+    err["error"] = "Field 'answer_options' must not contain more than " +
+                   std::to_string(kMaxAnswerOptions) + " entries";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  std::vector<std::string> optionTexts;
+  optionTexts.reserve(answerOptions.size());
+  for (const auto& opt : answerOptions) {
+    std::string text;
+    if (opt.isString()) {
+      text = opt.asString();
+    } else if (opt.isObject() && opt.isMember("text") &&
+               opt["text"].isString()) {
+      text = opt["text"].asString();
+    } else {
+      Json::Value err;
+      err["error"] =
+          "Each answer option must be a string or an object with a "
+          "non-empty 'text' field";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+    if (text.empty()) {
+      Json::Value err;
+      err["error"] = "answer option text must not be empty";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+    optionTexts.push_back(std::move(text));
+  }
+
   // The submitter is taken from the verified JWT, never from the request body,
   // so a user cannot forge ownership or self-approve.
   int64_t user_id = req->attributes()->get<int64_t>("user_id");
@@ -1155,35 +1222,85 @@ void QuestionController::submitQuestion(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(callback));
 
-  // Insert as a *pending* submission owned by the current user. The
-  // submission_status literal is a server constant; clients cannot override it.
-  *dbClient << "INSERT INTO questions (text, category_id, language, min_age, "
-               "submission_status, submitted_by) "
-               "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, 'pending', "
-               "$5::bigint) "
-               "RETURNING id, text, category_id, language, min_age, "
-               "created_at, submission_status, submitted_by"
-            << text << category_id << language << min_age << user_id >>
-      [callbackPtr](const Result& r) {
-        if (r.empty()) {
-          Json::Value err;
-          err["error"] = "database error";
-          auto resp = HttpResponse::newHttpJsonResponse(err);
-          resp->setStatusCode(k500InternalServerError);
-          (*callbackPtr)(resp);
-          return;
-        }
-        auto resp = HttpResponse::newHttpJsonResponse(questionToJson(r[0]));
-        resp->setStatusCode(k201Created);
-        (*callbackPtr)(resp);
-      } >>
-      [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "QuestionController::submitQuestion DB error: "
-                  << e.base().what();
-        Json::Value err;
-        err["error"] = "database error";
-        auto resp = HttpResponse::newHttpJsonResponse(err);
-        resp->setStatusCode(k500InternalServerError);
-        (*callbackPtr)(resp);
-      };
+  // Insert the question AND its answer options inside a single transaction so
+  // the submission is atomic: if any insert fails the whole submission is
+  // rolled back and no partial record is left behind.
+  dbClient->newTransactionAsync([=](const std::shared_ptr<
+                                    drogon::orm::Transaction>& trans) {
+    if (!trans) {
+      Json::Value err;
+      err["error"] = "database timeout";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k500InternalServerError);
+      (*callbackPtr)(resp);
+      return;
+    }
+
+    *trans << "INSERT INTO questions (text, category_id, language, min_age, "
+              "submission_status, submitted_by) "
+              "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, "
+              "'pending', $5::bigint) "
+              "RETURNING id, text, category_id, language, min_age, "
+              "created_at, submission_status, submitted_by"
+           << text << category_id << language << min_age << user_id >>
+        [=](const Result& r) {
+          const int64_t new_qid = r[0]["id"].as<long long>();
+
+          // Build a single multi-row INSERT for all answer options. Every
+          // text is bound as its own parameter (no string interpolation) so
+          // the statement is injection-safe and the option order is
+          // preserved (placeholder $1 is the question id).
+          std::string optSql =
+              "INSERT INTO answer_options (question_id, text) VALUES ";
+          for (size_t i = 0; i < optionTexts.size(); ++i) {
+            if (i) optSql += ", ";
+            optSql += fmt::format("($1::bigint, ${}::text)", i + 2);
+          }
+          optSql += " RETURNING id, text";
+
+          auto binder = *trans << optSql;
+          binder << new_qid;
+          for (const auto& t : optionTexts) binder << t;
+          binder >> [=](const Result& opts) {
+            Json::Value answers(Json::arrayValue);
+            for (const auto& row : opts) {
+              Json::Value o;
+              o["id"] = Json::Value(
+                  static_cast<Json::Int64>(row["id"].as<long long>()));
+              o["question_id"] = Json::Value(static_cast<Json::Int64>(new_qid));
+              o["text"] = row["text"].as<std::string>();
+              answers.append(o);
+            }
+
+            Json::Value out = questionToJson(r[0]);
+            out["answer_options"] = answers;
+            auto resp = HttpResponse::newHttpJsonResponse(out);
+            resp->setStatusCode(k201Created);
+            // The answer_options INSERT is the last statement of the
+            // transaction; commit it and respond once the commit lands.
+            trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
+          } >> [=](const DrogonDbException& e) {
+            trans->rollback();
+            LOG_ERROR << "QuestionController::submitQuestion answer_options "
+                         "insert failed: "
+                      << e.base().what();
+            Json::Value err;
+            err["error"] = "database error";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k500InternalServerError);
+            (*callbackPtr)(resp);
+          };
+        }  // end question insert success lambda
+        >> [=](const DrogonDbException& e) {
+            trans->rollback();
+            LOG_ERROR << "QuestionController::submitQuestion question insert "
+                         "failed: "
+                      << e.base().what();
+            Json::Value err;
+            err["error"] = "database error";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k500InternalServerError);
+            (*callbackPtr)(resp);
+          };  // end question insert error lambda
+  });  // end newTransactionAsync
 }
