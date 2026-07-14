@@ -44,6 +44,9 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::rejectQuestion,
                 "/admin/questions/{1}/reject", drogon::Post, drogon::Options,
                 "AdminAuthFilter");
+  ADD_METHOD_TO(QuestionController::getAdminAnswerOptions,
+                "/admin/questions/{1}/answers", drogon::Get, drogon::Options,
+                "AdminAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -86,6 +89,12 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void rejectQuestion(const drogon::HttpRequestPtr& req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                       int questionId);
+  // GET /admin/questions/{1}/answers: answer options for any question, exposed
+  // to administrators for submission review (no visibility restriction).
+  void getAdminAnswerOptions(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+      int questionId);
 
   // --- Standard REST endpoints (moved from the generated RestfulQuestionsCtrl)
   // GET /questions: list approved questions (public; requires a valid token).

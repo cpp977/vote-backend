@@ -1451,3 +1451,116 @@ TEST_CASE(
   CHECK(texts.count("Never") == 1);
   CHECK(texts.count("Daily") == 1);
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/questions/{id}/answers  (admin review-queue answer options)
+//
+// Administrators reviewing a submission need to see the submitted answer
+// options even when the question is still pending and therefore hidden from the
+// public /questions/{id}/answers endpoint. The admin endpoint sits behind
+// AdminAuthFilter and returns the options for any existing question regardless
+// of submission status; it 404s only when the question itself does not exist.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AdminGetAnswerOptions returns options for a pending submission") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // A regular user submits a pending question together with its answer options.
+  nlohmann::json body = {{"text", "Should public transport be free?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No", "Depends"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // The admin can fetch the answer options of the pending submission through
+  // the dedicated admin endpoint (which a non-owner cannot reach publicly).
+  auto admin_opts = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(admin_opts.status == 200);
+  CHECK(admin_opts.json_body.is_array());
+  CHECK(admin_opts.json_body.size() == 3);
+
+  // Each option carries id, question_id and text; question_id points back to
+  // the submission and the texts match what was submitted.
+  std::vector<std::string> expected_keys = {"id", "question_id", "text"};
+  for (size_t i = 0; i < admin_opts.json_body.size(); ++i) {
+    test_helpers::check_json_has_keys(admin_opts.json_body[i], expected_keys,
+                                      "admin_opt[" + std::to_string(i) + "]");
+    CHECK(admin_opts.json_body[i]["question_id"] == new_id);
+  }
+  std::set<std::string> texts;
+  for (const auto& o : admin_opts.json_body) {
+    texts.insert(o["text"].get<std::string>());
+  }
+  CHECK(texts.count("Yes") == 1);
+  CHECK(texts.count("No") == 1);
+  CHECK(texts.count("Depends") == 1);
+}
+
+TEST_CASE(
+    "AdminGetAnswerOptions also returns options for an approved question") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Seed question 1 ("How many bananas do you eat per week?") is approved and
+  // has 5 answer options; the admin endpoint must return them as well.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/questions/1/answers", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 5);
+
+  std::vector<std::string> expected_keys = {"id", "question_id", "text"};
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    test_helpers::check_json_has_keys(
+        resp.json_body[i], expected_keys,
+        "approved_opt[" + std::to_string(i) + "]");
+    CHECK(resp.json_body[i]["question_id"] == 1);
+  }
+  std::vector<std::string> expected_texts = {"0", "1-2", "3-5", "6-10",
+                                             "More than 10"};
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i]["text"] == expected_texts[i]);
+  }
+}
+
+TEST_CASE("AdminGetAnswerOptions rejects non-admin users with 403") {
+  // A regular (non-admin) user must be blocked by AdminAuthFilter.
+  auto other_token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "admin_opts_other", "admin_opts_other@example.com",
+      "password123", 1990, "m", "US");
+
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/questions/1/answers", "",
+                                         "application/json", other_token);
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminGetAnswerOptions requires authentication (401)") {
+  // No bearer token at all -> 401 from AdminAuthFilter.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/questions/1/answers");
+  CHECK(resp.status == 401);
+}
+
+TEST_CASE("AdminGetAnswerOptions returns 404 for a non-existent question") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Even an admin cannot read options for a question that does not exist.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/questions/999999/answers", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 404);
+}

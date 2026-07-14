@@ -977,6 +977,63 @@ void QuestionController::rejectQuestion(
       };
 }
 
+void QuestionController::getAdminAnswerOptions(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int questionId) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Administrators review submissions of every status, so the answer options of
+  // any question are returned here without the approved/owner visibility check
+  // applied to the public endpoint. The question must still exist.
+  *dbClient << "SELECT id FROM questions WHERE id = $1::bigint"
+            << static_cast<int64_t>(questionId) >>
+      [dbClient, callbackPtr](const Result& r) {
+        if (r.empty()) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        *dbClient << "SELECT id, question_id, text FROM answer_options "
+                     "WHERE question_id = $1::bigint ORDER BY id"
+                  << static_cast<int64_t>(r[0]["id"].as<long long>()) >>
+            [callbackPtr](const Result& opts) {
+              Json::Value arr(Json::arrayValue);
+              for (const auto& row : opts) {
+                Json::Value o;
+                o["id"] = Json::Value(
+                    static_cast<Json::Int64>(row["id"].as<long long>()));
+                o["question_id"] = Json::Value(static_cast<Json::Int64>(
+                    row["question_id"].as<long long>()));
+                o["text"] = row["text"].as<std::string>();
+                arr.append(o);
+              }
+              (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+            } >>
+            [callbackPtr](const DrogonDbException& e) {
+              LOG_ERROR << "getAdminAnswerOptions DB error: "
+                        << e.base().what();
+              Json::Value err;
+              err["error"] = "database error";
+              auto resp = HttpResponse::newHttpJsonResponse(err);
+              resp->setStatusCode(k500InternalServerError);
+              (*callbackPtr)(resp);
+            };
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << "getAdminAnswerOptions DB error: " << e.base().what();
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
 void QuestionController::getOne(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback, int questionId) {
