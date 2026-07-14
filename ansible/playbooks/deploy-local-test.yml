@@ -1,0 +1,29 @@
+---
+# playbooks/deploy-local-test.yml
+# Target 2a: Local deployment for vote-backend (integration testing).
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/deploy-local-test.yml
+#
+# This playbook deploys an ephemeral setup that is convenient for integration
+# tests: the PostgreSQL data directory is NOT bind-mounted, so the database is
+# recreated from the SQL init scripts on every (re)deploy.
+#
+# This playbook:
+#   1. Builds the Containerfile image
+#   2. Installs quadlets (network, postgres, app) into the user systemd instance
+#   3. Reloads the user systemd daemon
+#   4. Starts and enables the database and backend services
+#
+# Use deploy-local.yml for a persistent, production-like deployment.
+
+- name: Deploy vote-backend locally for integration testing (Podman, ephemeral database)
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    vote_backend_project_root: "{{ playbook_dir }}/../.."
+    vote_backend_postgres_persistent: false
+
+  roles:
+    - role: deploy-local

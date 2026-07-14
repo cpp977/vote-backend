@@ -8,7 +8,7 @@ Both the backend and the database are running in rootless podman containers usin
 
 ## Ansible Playbooks
 
-Two Ansible playbooks automate the main workflows. Both target the `dev` group (localhost).
+Three Ansible playbooks automate the main workflows. All target the `dev` group (localhost).
 
 ### Build & Test (native)
 
@@ -21,17 +21,35 @@ This playbook handles the full native build and test pipeline:
 4. Runs all unit tests via ctest (Debug)
 5. Checks code formatting with `clang-format`
 
-### Deploy / Redeploy (containers)
+### Deploy locally (persistent service)
 
 `ansible-playbook ansible/playbooks/deploy-local.yml`
 
-This playbook deploys the application into rootless Podman containers via quadlets:
+This playbook deploys the application into rootless Podman containers via quadlets for
+running it as a real service. The PostgreSQL data directory is bind-mounted from
+`~/.local/share/vote-backend/postgres`, so the database survives container restarts:
 1. Builds the `Containerfile` image
 2. Installs quadlets (network, postgres, app) into the user systemd instance
 3. Reloads the user systemd daemon
 4. Starts and enables the database and backend services
 
-**Typical workflow**: run **build-and-test** first to validate changes natively, then run **deploy-local** to (re)deploy the containerized application for real integration testing.
+**Typical workflow**: run **build-and-test** first to validate changes natively, then run
+**deploy-local** to (re)deploy the containerized application as a persistent service.
+
+### Deploy locally (integration testing)
+
+`ansible-playbook ansible/playbooks/deploy-local-test.yml`
+
+This playbook is the old `deploy-local` deployment, kept for integration tests. It deploys
+an ephemeral setup: the PostgreSQL data directory is **not** bind-mounted, so the database
+is recreated from the SQL init scripts on every (re)deploy:
+1. Builds the `Containerfile` image
+2. Installs quadlets (network, postgres, app) into the user systemd instance
+3. Reloads the user systemd daemon
+4. Starts and enables the database and backend services
+
+Use this for running the integration test suite (`ctest --preset test-debug`); the database
+state is reset on each (re)deploy.
 
 ## Build, Lint & Test Commands on native hosts
 - **Configure** `CXX=clang++ cmake --preset ninja-multi-vcpkg`

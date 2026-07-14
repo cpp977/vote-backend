@@ -10,7 +10,7 @@ GlobalTestFixture::GlobalTestFixture() {
   // regardless of the working directory CTest sets.
   const char* src_dir = std::getenv("VOTE_BACKEND_SRC");
   std::string base = src_dir ? std::string(src_dir) : ".";
-  std::string playbook = base + "/ansible/playbooks/deploy-local.yml";
+  std::string playbook = base + "/ansible/playbooks/deploy-local-test.yml";
   std::string roles_path = base + "/ansible/roles";
   run_ansible_playbook(playbook, roles_path);
   wait_for_http("127.0.0.1", 8848);

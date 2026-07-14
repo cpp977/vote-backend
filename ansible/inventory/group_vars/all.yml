@@ -14,3 +14,11 @@ vote_backend_image_name: localhost/vote-backend
 vote_backend_image_tag: "{{ lookup('file', vote_backend_project_root ~ '/version.txt') | trim }}"
 vote_backend_quadlet_dir: "{{ vote_backend_project_root }}/quadlets"
 vote_backend_uid: "{{ ansible_user_uid | default(1000) }}"
+
+# PostgreSQL persistence for local deployments.
+# When true the PostgreSQL data directory is bind-mounted from
+# vote_backend_postgres_data_dir so the database survives container restarts.
+# The deploy-local-test.yml playbook overrides this to false (ephemeral DB,
+# recreated from the SQL init scripts on every (re)deploy).
+vote_backend_postgres_persistent: false
+vote_backend_postgres_data_dir: "{{ ansible_env.HOME }}/.local/share/vote-backend/postgres"

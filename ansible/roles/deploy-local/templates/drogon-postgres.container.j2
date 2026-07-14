@@ -1,0 +1,36 @@
+# containers/drogon-postgres.container
+# Podman quadlet definition for the PostgreSQL database.
+# Rendered by the deploy-local role from this template.
+#
+# When `vote_backend_postgres_persistent` is true the PostgreSQL data directory
+# is bind-mounted from {{ vote_backend_postgres_data_dir }} so that the database
+# survives container restarts. Otherwise the database is ephemeral (the data
+# lives only inside the container and is reset on every (re)deploy).
+#
+# Equivalent to (ephemeral):
+#   podman run --name drogon-postgres -e POSTGRES_PASSWORD=secret \
+#     -e POSTGRES_DB=vote \
+#     -v ~/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d \
+#     -p 5432:5432 -d postgres:18
+#
+# Generated systemd unit: drogon-postgres.service
+
+[Container]
+ContainerName=drogon-postgres
+Image=postgres:18
+Environment=POSTGRES_PASSWORD=secret
+Environment=POSTGRES_DB=vote
+Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
+{% if vote_backend_postgres_persistent %}
+Volume=%h/.local/share/vote-backend/postgres:/var/lib/postgresql/data:Z
+{% endif %}
+Network=vote.network
+PublishPort=5432:5432
+
+[Service]
+Restart=on-failure
+# Wait until PostgreSQL is truly ready to accept connections
+# before signaling the service as started.
+ExecStartPost=/bin/sh -c 'until podman exec drogon-postgres pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
+
+[Install]
