@@ -28,8 +28,8 @@ This playbook handles the full native build and test pipeline:
 This playbook deploys the application into rootless Podman containers via quadlets for
 running it as a real service. In addition to the database and backend it also stands up
 an **nginx reverse proxy** that terminates TLS, so the backend is reachable over HTTPS:
-- The PostgreSQL data directory is bind-mounted from `~/.local/share/vote-backend/postgres`,
-  so the database survives container restarts.
+- The PostgreSQL data directory is bind-mounted from `~/.local/share/vote-backend/postgres/18`
+  (the `/18` suffix is required by PostgreSQL >= 18), so the database survives container restarts.
 - A **self-signed TLS certificate** is generated locally by the role and stored under
   `~/.config/vote-backend/tls` (outside the git repository). Drop real CA-signed
   `fullchain.pem`/`privkey.pem` files there to replace it.

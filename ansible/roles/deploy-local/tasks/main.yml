@@ -6,21 +6,21 @@
 
 - name: Ensure vote-backend config directory exists
   ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.config/vote-backend"
+    path: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend"
     state: directory
     mode: "0755"
 
 - name: Copy config.json to user config directory
   ansible.builtin.copy:
     src: "{{ vote_backend_project_root }}/config.json"
-    dest: "{{ ansible_env.HOME }}/.config/vote-backend/config.json"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/config.json"
     mode: "0644"
     force: true
 
 - name: Copy SQL init scripts to a portable location
   ansible.builtin.copy:
     src: "{{ vote_backend_project_root }}/sql/"
-    dest: "{{ ansible_env.HOME }}/.local/share/vote-backend/sql/"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/sql/"
     mode: "0644"
     directory_mode: "0755"
 
@@ -40,17 +40,19 @@
     state: present
     src: "{{ vote_backend_quadlet_dir }}/vote.network"
 
-- name: Ensure PostgreSQL data directory exists (persistent deployment)
-  ansible.builtin.file:
-    path: "{{ vote_backend_postgres_data_dir }}"
-    state: directory
-    mode: "0755"
-  when: vote_backend_postgres_persistent | default(false)
+# NOTE: The PostgreSQL data directory is intentionally NOT pre-created by
+# Ansible. After the container starts, PostgreSQL chowns the bind-mounted
+# directory to its in-namespace UID with mode 0700; the host user can then no
+# longer access it, which would cause a "permission denied" error on a later
+# run when Ansible stats/creates the path. Podman creates the bind-mount source
+# directory automatically when the container starts, so we rely on that instead
+# of managing the directory from the playbook (use `podman unshare` to fix an
+# already-chowned directory manually).
 
 - name: Render drogon-postgres quadlet (ephemeral or persistent)
   ansible.builtin.template:
     src: drogon-postgres.container.j2
-    dest: "{{ ansible_env.XDG_CONFIG_HOME | default(ansible_env.HOME ~ '/.config') }}/containers/systemd/drogon-postgres.container"
+    dest: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd/drogon-postgres.container"
     mode: "0644"
 
 - name: Install vote-backend@.container quadlet template
@@ -60,7 +62,7 @@
 
 - name: Ensure containers.conf disables netavark firewall (nftables incompatibility)
   ansible.builtin.copy:
-    dest: "{{ ansible_env.HOME }}/.config/containers/containers.conf"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.config/containers/containers.conf"
     content: |
       [network]
       firewall_driver = "none"
@@ -160,6 +162,6 @@
 
 - name: Remove vote-backend-nginx quadlet (ephemeral deployment)
   ansible.builtin.file:
-    path: "{{ ansible_env.XDG_CONFIG_HOME | default(ansible_env.HOME ~ '/.config') }}/containers/systemd/vote-backend-nginx@.container"
+    path: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd/vote-backend-nginx@.container"
     state: absent
   when: "not (vote_backend_postgres_persistent | default(false))"

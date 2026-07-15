@@ -9,7 +9,7 @@
 #   1. Builds the Containerfile image
 #   2. Installs quadlets (network, postgres, app) into the user systemd instance
 #   3. The PostgreSQL data directory is bind-mounted from
-#      ~/.local/share/vote-backend/postgres so data survives container restarts
+#      ~/.local/share/vote-backend/postgres/18 so data survives container restarts
 #   4. Reloads the user systemd daemon
 #   5. Starts and enables the database and backend services
 #

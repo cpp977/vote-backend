@@ -7,9 +7,15 @@
 # survives container restarts. Otherwise the database is ephemeral (the data
 # lives only inside the container and is reset on every (re)deploy).
 #
+# PostgreSQL >= 18 requires the major version ("18") to appear in the data
+# directory path (see docker-library/postgres#1259). This applies to the
+# in-container PGDATA, so PGDATA is set to /var/lib/postgresql/data/18 and the
+# host bind-mount (when persistent) maps to that same path. Both therefore
+# include "/18".
+#
 # Equivalent to (ephemeral):
 #   podman run --name drogon-postgres -e POSTGRES_PASSWORD=secret \
-#     -e POSTGRES_DB=vote \
+#     -e POSTGRES_DB=vote -e PGDATA=/var/lib/postgresql/data/18 \
 #     -v ~/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d \
 #     -p 5432:5432 -d postgres:18
 #
@@ -20,9 +26,10 @@ ContainerName=drogon-postgres
 Image=postgres:18
 Environment=POSTGRES_PASSWORD=secret
 Environment=POSTGRES_DB=vote
+Environment=PGDATA=/var/lib/postgresql/data/18
 Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
 {% if vote_backend_postgres_persistent %}
-Volume=%h/.local/share/vote-backend/postgres:/var/lib/postgresql/data:Z
+Volume=%h/.local/share/vote-backend/postgres/18:/var/lib/postgresql/data/18:Z
 {% endif %}
 Network=vote.network
 PublishPort=5432:5432
