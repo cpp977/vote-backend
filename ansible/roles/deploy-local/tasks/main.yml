@@ -66,6 +66,50 @@
       firewall_driver = "none"
     mode: "0644"
 
+# --- Persistent deployment: TLS + nginx reverse proxy (HTTPS) ----------------
+- name: Ensure TLS directory exists (persistent deployment)
+  ansible.builtin.file:
+    path: "{{ vote_backend_tls_dir }}"
+    state: directory
+    mode: "0700"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Generate TLS private key (self-signed, persistent deployment)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ vote_backend_tls_dir }}/privkey.pem 2048"
+    creates: "{{ vote_backend_tls_dir }}/privkey.pem"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Generate self-signed TLS certificate (persistent deployment)
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -x509 -days 365
+      -key {{ vote_backend_tls_dir }}/privkey.pem
+      -out {{ vote_backend_tls_dir }}/fullchain.pem
+      -subj "/CN=vote-backend.local"
+      -addext "subjectAltName=DNS:vote-backend.local,IP:127.0.0.1"
+    creates: "{{ vote_backend_tls_dir }}/fullchain.pem"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Restrict TLS private key permissions (persistent deployment)
+  ansible.builtin.file:
+    path: "{{ vote_backend_tls_dir }}/privkey.pem"
+    mode: "0600"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Copy nginx reverse-proxy configuration (persistent deployment)
+  ansible.builtin.copy:
+    src: nginx.conf
+    dest: "{{ vote_backend_nginx_conf }}"
+    mode: "0644"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Install vote-backend-nginx quadlet (persistent deployment)
+  containers.podman.podman_quadlet:
+    state: present
+    src: "{{ vote_backend_quadlet_dir }}/vote-backend-nginx@.container"
+  when: vote_backend_postgres_persistent | default(false)
+
 - name: Reload systemd user daemon to pick up new quadlets
   ansible.builtin.systemd_service:
     daemon_reload: true
@@ -90,3 +134,32 @@
     scope: user
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+- name: Start vote-backend-nginx reverse proxy (persistent deployment)
+  ansible.builtin.systemd_service:
+    name: "vote-backend-nginx@{{ vote_backend_image_tag }}.service"
+    state: started
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  when: vote_backend_postgres_persistent | default(false)
+
+# If a previous persistent deployment left an nginx reverse proxy running,
+# tear it down when deploying the ephemeral (test) setup.
+- name: Stop and disable vote-backend-nginx reverse proxy (ephemeral deployment)
+  ansible.builtin.systemd_service:
+    name: "vote-backend-nginx@{{ vote_backend_image_tag }}.service"
+    state: stopped
+    enabled: false
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  failed_when: false
+  when: "not (vote_backend_postgres_persistent | default(false))"
+
+- name: Remove vote-backend-nginx quadlet (ephemeral deployment)
+  ansible.builtin.file:
+    path: "{{ ansible_env.XDG_CONFIG_HOME | default(ansible_env.HOME ~ '/.config') }}/containers/systemd/vote-backend-nginx@.container"
+    state: absent
+  when: "not (vote_backend_postgres_persistent | default(false))"

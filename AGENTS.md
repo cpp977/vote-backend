@@ -26,12 +26,24 @@ This playbook handles the full native build and test pipeline:
 `ansible-playbook ansible/playbooks/deploy-local.yml`
 
 This playbook deploys the application into rootless Podman containers via quadlets for
-running it as a real service. The PostgreSQL data directory is bind-mounted from
-`~/.local/share/vote-backend/postgres`, so the database survives container restarts:
+running it as a real service. In addition to the database and backend it also stands up
+an **nginx reverse proxy** that terminates TLS, so the backend is reachable over HTTPS:
+- The PostgreSQL data directory is bind-mounted from `~/.local/share/vote-backend/postgres`,
+  so the database survives container restarts.
+- A **self-signed TLS certificate** is generated locally by the role and stored under
+  `~/.config/vote-backend/tls` (outside the git repository). Drop real CA-signed
+  `fullchain.pem`/`privkey.pem` files there to replace it.
+- nginx listens on host port **8443** (rootless) and proxies to the backend on the
+  `vote.network`. The certificate is issued for `vote-backend.local`; add
+  `vote-backend.local <host-ip>` to `/etc/hosts` so the name resolves. (A later `socat`
+  forward from 443 → 8443 is not configured yet.)
+
+Steps:
 1. Builds the `Containerfile` image
-2. Installs quadlets (network, postgres, app) into the user systemd instance
-3. Reloads the user systemd daemon
-4. Starts and enables the database and backend services
+2. Generates the self-signed certificate (persistent deployment only)
+3. Installs quadlets (network, postgres, app, nginx) into the user systemd instance
+4. Reloads the user systemd daemon
+5. Starts and enables the database, backend, and nginx services
 
 **Typical workflow**: run **build-and-test** first to validate changes natively, then run
 **deploy-local** to (re)deploy the containerized application as a persistent service.

@@ -22,3 +22,12 @@ vote_backend_uid: "{{ ansible_user_uid | default(1000) }}"
 # recreated from the SQL init scripts on every (re)deploy).
 vote_backend_postgres_persistent: false
 vote_backend_postgres_data_dir: "{{ ansible_env.HOME }}/.local/share/vote-backend/postgres"
+
+# nginx reverse proxy + TLS for the persistent local deployment.
+# When vote_backend_postgres_persistent is true the role stands up an nginx
+# container that terminates TLS and proxies to vote-backend. A self-signed
+# certificate is generated locally and stored under vote_backend_tls_dir, which
+# lives under the user's home directory (outside the git repository). Replace
+# the files in that directory with a real certificate to use a CA-signed one.
+vote_backend_tls_dir: "{{ ansible_env.HOME }}/.config/vote-backend/tls"
+vote_backend_nginx_conf: "{{ ansible_env.HOME }}/.config/vote-backend/nginx.conf"

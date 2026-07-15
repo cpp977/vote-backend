@@ -1,0 +1,30 @@
+# containers/vote-backend-nginx@.container
+# Podman quadlet template for the nginx reverse proxy (HTTPS terminator) in
+# front of vote-backend. Install alongside the other quadlets.
+#
+# The instance name (%i) is the vote-backend version string and must match the
+# running vote-backend@%i.service instance it proxies to.
+#
+# nginx runs rootless, so it listens on container port 443 published to host
+# port 8443 (a later socat forward from 443 -> 8443 is not configured here yet).
+# It serves https://vote-backend.local:8443; add "vote-backend.local <host-ip>"
+# to /etc/hosts so the name resolves.
+# The TLS certificate/key are expected under ~/.config/vote-backend/tls
+# (generated locally by the deploy-local role; never committed to git).
+
+[Container]
+ContainerName=vote-backend-nginx
+Image=nginx:stable
+Network=vote.network
+PublishPort=8443:443
+Volume=%h/.config/vote-backend/nginx.conf:/etc/nginx/conf.d/default.conf:Z
+Volume=%h/.config/vote-backend/tls:/etc/nginx/tls:Z,ro
+
+[Service]
+Restart=on-failure
+
+[Unit]
+After=vote-backend@%i.service
+Requires=vote-backend@%i.service
+
+[Install]
