@@ -120,28 +120,35 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
 
-- name: Start drogon-postgres service
+# Restart (not merely start) the services so their containers are recreated
+# from the *current* quadlet. `systemctl start` is a no-op for an already
+# running container, which would otherwise leave a stale container behind
+# (e.g. the wrong port exposure or data-dir mapping) when switching between
+# the persistent (nginx) and ephemeral (test) deployments. The podman quadlet
+# units use `podman run --replace`, so a restart reliably recreates the
+# container with the latest quadlet configuration.
+- name: Restart drogon-postgres service
   ansible.builtin.systemd_service:
     name: drogon-postgres.service
-    state: started
+    state: restarted
     enabled: true
     scope: user
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
 
-- name: Start vote-backend service (template instance)
+- name: Restart vote-backend service (template instance)
   ansible.builtin.systemd_service:
     name: "vote-backend@{{ vote_backend_image_tag }}.service"
-    state: started
+    state: restarted
     enabled: true
     scope: user
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
 
-- name: Start vote-backend-nginx reverse proxy (persistent deployment)
+- name: Restart vote-backend-nginx reverse proxy (persistent deployment)
   ansible.builtin.systemd_service:
     name: "vote-backend-nginx@{{ vote_backend_image_tag }}.service"
-    state: started
+    state: restarted
     enabled: true
     scope: user
   environment:
