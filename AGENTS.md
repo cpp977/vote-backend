@@ -78,7 +78,7 @@ state is reset on each (re)deploy.
 
 The project version is defined **once** in `CMakeLists.txt` via `project(vote-backend VERSION ...)`.
 CMake generates `version.txt` at configure time; the Ansible deployment and quadlet template
-(`quadlets/vote-backend@.container`) derive their image tag from it.
+(`quadlets/vote-backend@.container.j2`) derive their image tag from it.
 
 ## Build container (compilation included)
 - `CXX=clang++ cmake --preset ninja-multi-vcpkg` (generates `version.txt`)

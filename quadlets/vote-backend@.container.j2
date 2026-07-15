@@ -1,4 +1,4 @@
-# quadlets/vote-backend@.container
+# quadlets/vote-backend@.container.j2
 # Podman quadlet template for the vote-backend application.
 # The instance name (%i) is the version string, e.g. vote-backend@0.1.0.service
 # Install to /etc/containers/systemd/vote-backend@.container
@@ -13,7 +13,12 @@
 ContainerName=vote-backend
 Image=localhost/vote-backend:%i
 Network=vote.network
-PublishPort=8848:8848
+# Publish the host port only when no nginx reverse proxy is deployed (the
+# ephemeral/test setup). With nginx (persistent deployment) the backend is
+# reached solely through the podman bridge network, so the port stays
+# unpublished and clients cannot bypass nginx to hit the backend directly.
+{% if not (vote_backend_postgres_persistent | default(false)) %}PublishPort=8848:8848
+{% endif %}
 Volume=%h/.config/vote-backend:/etc/vote
 
 [Service]
