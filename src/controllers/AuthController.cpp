@@ -22,8 +22,6 @@
 #include <openssl/rand.h>
 
 #include <fstream>
-#include <iomanip>
-#include <sstream>
 
 #include "vote-backend/models/Users.hpp"
 #include "vote-backend/utils/JwtService.hpp"
@@ -98,11 +96,11 @@ std::string sha256_hex(const std::string& input) {
   EVP_DigestFinal_ex(ctx, hash, &hash_len);
   EVP_MD_CTX_free(ctx);
 
-  std::ostringstream oss;
+  std::string out;
+  out.reserve(hash_len * 2);
   for (unsigned int i = 0; i < hash_len; ++i)
-    oss << std::hex << std::setw(2) << std::setfill('0')
-        << static_cast<int>(hash[i]);
-  return oss.str();
+    out += fmt::format("{:02x}", static_cast<int>(hash[i]));
+  return out;
 }
 
 /**

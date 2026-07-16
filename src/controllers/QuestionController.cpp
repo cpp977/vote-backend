@@ -91,7 +91,8 @@ void QuestionController::getQuestionsWithCategories(
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
-          LOG_ERROR << "getQuestionsWithCategories failed: " << e.what();
+          LOG_ERROR << fmt::format("getQuestionsWithCategories failed: {}",
+                                   e.what());
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k500InternalServerError);
           resp->setBody(std::string("Internal error: ") + e.what());
@@ -99,7 +100,8 @@ void QuestionController::getQuestionsWithCategories(
         }
       },
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getQuestionsWithCategories DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getQuestionsWithCategories DB error: {}",
+                                 e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
@@ -145,7 +147,7 @@ void QuestionController::searchQuestions(
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
-          LOG_ERROR << "searchQuestions failed: " << e.what();
+          LOG_ERROR << fmt::format("searchQuestions failed: {}", e.what());
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k500InternalServerError);
           resp->setBody(std::string("Internal error: ") + e.what());
@@ -153,7 +155,8 @@ void QuestionController::searchQuestions(
         }
       },
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "searchQuestions DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("searchQuestions DB error: {}",
+                                 e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
@@ -212,7 +215,8 @@ void QuestionController::getAnswerOptions(
               (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
             } >>
             [callbackPtr](const DrogonDbException& e) {
-              LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
+              LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+                                       e.base().what());
               auto resp = HttpResponse::newHttpResponse();
               resp->setStatusCode(k500InternalServerError);
               resp->setBody(e.base().what());
@@ -220,7 +224,8 @@ void QuestionController::getAnswerOptions(
             };
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getAnswerOptions DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+                                 e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
@@ -262,7 +267,8 @@ void QuestionController::getQuestionsByLanguage(
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
-          LOG_ERROR << "getQuestionsByLanguage failed: " << e.what();
+          LOG_ERROR << fmt::format("getQuestionsByLanguage failed: {}",
+                                   e.what());
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k500InternalServerError);
           resp->setBody(std::string("Internal error: ") + e.what());
@@ -270,7 +276,8 @@ void QuestionController::getQuestionsByLanguage(
         }
       },
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getQuestionsByLanguage DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getQuestionsByLanguage DB error: {}",
+                                 e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
@@ -479,15 +486,15 @@ void QuestionController::restSearchQuestions(
         reader->parse(body.data(), body.data() + body.size(), &root, &errs);
 
     if (!ok) {
-      LOG_WARN << "Invalid JSON in request body: " << errs;
-      LOG_WARN << "Raw body was: " << body;
+      LOG_WARN << fmt::format("Invalid JSON in request body: {}", errs);
+      LOG_WARN << fmt::format("Raw body was: {}", body);
     } else {
       // rare: Drogon's own parser rejected it but JsonCpp directly succeeds —
       // usually means Content-Type wasn't application/json
-      LOG_WARN
-          << "Body parsed independently but Drogon didn't recognize it as JSON "
-             "(check Content-Type header: "
-          << req->getHeader("Content-Type") << ")";
+      LOG_WARN << fmt::format(
+          "Body parsed independently but Drogon didn't recognize it as JSON "
+          "(check Content-Type header: {})",
+          req->getHeader("Content-Type"));
     }
 
     auto resp = HttpResponse::newHttpResponse();
@@ -507,7 +514,8 @@ void QuestionController::restSearchQuestions(
         offset = 0;
       }
     } catch (const std::exception& e) {
-      LOG_WARN << "Invalid offset value, using default (0): " << e.what();
+      LOG_WARN << fmt::format("Invalid offset value, using default (0): {}",
+                              e.what());
     }
   }
 
@@ -522,7 +530,8 @@ void QuestionController::restSearchQuestions(
         limit = 1000;
       }
     } catch (const std::exception& e) {
-      LOG_WARN << "Invalid limit value, using default (50): " << e.what();
+      LOG_WARN << fmt::format("Invalid limit value, using default (50): {}",
+                              e.what());
     }
   }
 
@@ -580,11 +589,11 @@ void QuestionController::restSearchQuestions(
       // the question's language (data inconsistency). Surface it instead of
       // returning a question with a missing or foreign-language category name.
       if (category_name.isNull()) {
-        LOG_ERROR << "Question " << row.at("id").as<long long>()
-                  << " (language " << row.at("language").as<std::string>()
-                  << ") references category "
-                  << row.at("category_id").as<long long>()
-                  << " which has no translation in that language";
+        LOG_ERROR << fmt::format(
+            "Question {} (language {}) references category {} which has no "
+            "translation in that language",
+            row.at("id").as<long long>(), row.at("language").as<std::string>(),
+            row.at("category_id").as<long long>());
         Json::Value err;
         err["error"] =
             "Data inconsistency: a question references a category that is "
@@ -752,8 +761,9 @@ void QuestionController::answerQuestion(
                     } >>
                     [=](const DrogonDbException& e) {
                       trans->rollback();
-                      LOG_ERROR << "answerQuestion user_answers insert failed: "
-                                << e.base().what();
+                      LOG_ERROR << fmt::format(
+                          "answerQuestion user_answers insert failed: {}",
+                          e.base().what());
                       Json::Value err;
                       err["error"] = "database error";
                       auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -763,8 +773,9 @@ void QuestionController::answerQuestion(
               } >>
               [=](const DrogonDbException& e) {
                 trans->rollback();
-                LOG_ERROR << "answerQuestion question_user insert failed: "
-                          << e.base().what();
+                LOG_ERROR << fmt::format(
+                    "answerQuestion question_user insert failed: {}",
+                    e.base().what());
                 Json::Value err;
                 err["error"] = "database error";
                 auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -773,15 +784,15 @@ void QuestionController::answerQuestion(
               };
         });  // end newTransactionAsync
       }  // end status-check success lambda
-      >>
-      [=](const DrogonDbException& e) {
-        LOG_ERROR << "answerQuestion status check failed: " << e.base().what();
-        Json::Value err;
-        err["error"] = "database error";
-        auto resp = HttpResponse::newHttpJsonResponse(err);
-        resp->setStatusCode(k500InternalServerError);
-        (*callbackPtr)(resp);
-      };
+      >> [=](const DrogonDbException& e) {
+          LOG_ERROR << fmt::format("answerQuestion status check failed: {}",
+                                   e.base().what());
+          Json::Value err;
+          err["error"] = "database error";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k500InternalServerError);
+          (*callbackPtr)(resp);
+        };
 }
 
 namespace {
@@ -844,7 +855,8 @@ void QuestionController::getMySubmissions(
         (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getMySubmissions DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getMySubmissions DB error: {}",
+                                 e.base().what());
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -869,7 +881,7 @@ void QuestionController::listSubmissions(
     (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
   };
   auto onError = [callbackPtr](const DrogonDbException& e) {
-    LOG_ERROR << "listSubmissions DB error: " << e.base().what();
+    LOG_ERROR << fmt::format("listSubmissions DB error: {}", e.base().what());
     Json::Value err;
     err["error"] = "database error";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -929,7 +941,8 @@ void QuestionController::approveQuestion(
             HttpResponse::newHttpJsonResponse(submissionToJson(r[0])));
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "approveQuestion DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("approveQuestion DB error: {}",
+                                 e.base().what());
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -968,7 +981,8 @@ void QuestionController::rejectQuestion(
             HttpResponse::newHttpJsonResponse(submissionToJson(r[0])));
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "rejectQuestion DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("rejectQuestion DB error: {}",
+                                 e.base().what());
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1015,8 +1029,8 @@ void QuestionController::getAdminAnswerOptions(
               (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
             } >>
             [callbackPtr](const DrogonDbException& e) {
-              LOG_ERROR << "getAdminAnswerOptions DB error: "
-                        << e.base().what();
+              LOG_ERROR << fmt::format("getAdminAnswerOptions DB error: {}",
+                                       e.base().what());
               Json::Value err;
               err["error"] = "database error";
               auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1025,7 +1039,8 @@ void QuestionController::getAdminAnswerOptions(
             };
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getAdminAnswerOptions DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getAdminAnswerOptions DB error: {}",
+                                 e.base().what());
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1058,7 +1073,8 @@ void QuestionController::getOne(
         (*callbackPtr)(HttpResponse::newHttpJsonResponse(questionToJson(r[0])));
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "QuestionController::getOne DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("QuestionController::getOne DB error: {}",
+                                 e.base().what());
         Json::Value err;
         err["error"] = "database error";
         auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1135,7 +1151,8 @@ void QuestionController::get(
     }
     (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
   } >> [callbackPtr](const DrogonDbException& e) {
-    LOG_ERROR << "QuestionController::get DB error: " << e.base().what();
+    LOG_ERROR << fmt::format("QuestionController::get DB error: {}",
+                             e.base().what());
     Json::Value err;
     err["error"] = "database error";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1338,9 +1355,10 @@ void QuestionController::submitQuestion(
             trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
           } >> [=](const DrogonDbException& e) {
             trans->rollback();
-            LOG_ERROR << "QuestionController::submitQuestion answer_options "
-                         "insert failed: "
-                      << e.base().what();
+            LOG_ERROR << fmt::format(
+                "QuestionController::submitQuestion answer_options insert "
+                "failed: {}",
+                e.base().what());
             Json::Value err;
             err["error"] = "database error";
             auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1350,9 +1368,9 @@ void QuestionController::submitQuestion(
         }  // end question insert success lambda
         >> [=](const DrogonDbException& e) {
             trans->rollback();
-            LOG_ERROR << "QuestionController::submitQuestion question insert "
-                         "failed: "
-                      << e.base().what();
+            LOG_ERROR << fmt::format(
+                "QuestionController::submitQuestion question insert failed: {}",
+                e.base().what());
             Json::Value err;
             err["error"] = "database error";
             auto resp = HttpResponse::newHttpJsonResponse(err);

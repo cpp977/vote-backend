@@ -4,6 +4,7 @@
 #include <drogon/HttpResponse.h>
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Exception.h>
+#include <fmt/format.h>
 #include <json/json.h>
 #include <trantor/utils/Logger.h>
 
@@ -45,7 +46,8 @@ void CategoryController::getCategoriesByLanguage(
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
-          LOG_ERROR << "getCategoriesByLanguage failed: " << e.what();
+          LOG_ERROR << fmt::format("getCategoriesByLanguage failed: {}",
+                                   e.what());
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k500InternalServerError);
           resp->setBody(std::string("Internal error: ") + e.what());
@@ -53,7 +55,8 @@ void CategoryController::getCategoriesByLanguage(
         }
       },
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << "getCategoriesByLanguage DB error: " << e.base().what();
+        LOG_ERROR << fmt::format("getCategoriesByLanguage DB error: {}",
+                                 e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());

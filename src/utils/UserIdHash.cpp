@@ -13,8 +13,6 @@
 #include <trantor/utils/Logger.h>
 
 #include <fstream>
-#include <iomanip>
-#include <sstream>
 #include <stdexcept>
 
 namespace vote_backend::utils {
@@ -44,8 +42,9 @@ std::string load_secret() {
     return cfg["jwt_secret"].asString();
   }
 
-  LOG_WARN << "[UserIdHasher] No user_id_hash_salt/jwt_secret configured; "
-              "using built-in default secret";
+  LOG_WARN << fmt::format(
+      "[UserIdHasher] No user_id_hash_salt/jwt_secret configured; "
+      "using built-in default secret");
   return "change-me-to-a-strong-random-secret-key-min-32-chars";
 }
 
@@ -66,12 +65,12 @@ std::string UserIdHasher::hash(int64_t user_id) const {
     throw std::runtime_error("UserIdHasher: HMAC-SHA256 computation failed");
   }
 
-  std::ostringstream oss;
-  oss << std::hex << std::setfill('0');
+  std::string out;
+  out.reserve(digest_len * 2);
   for (unsigned int i = 0; i < digest_len; ++i) {
-    oss << std::setw(2) << static_cast<int>(digest[i]);
+    out += fmt::format("{:02x}", static_cast<int>(digest[i]));
   }
-  return oss.str();
+  return out;
 }
 
 const UserIdHasher& user_id_hasher() {

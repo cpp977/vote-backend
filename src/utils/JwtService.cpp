@@ -12,10 +12,8 @@
 #include <trantor/utils/Logger.h>
 
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <random>
-#include <sstream>
 #include <stdexcept>
 
 using namespace vote_backend::utils;
@@ -27,11 +25,12 @@ std::string generate_jti() {
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> dis(0, 255);
 
-  std::stringstream ss;
+  std::string out;
+  out.reserve(16 * 2);
   for (int i = 0; i < 16; ++i) {
-    ss << std::hex << std::setw(2) << std::setfill('0') << dis(gen);
+    out += fmt::format("{:02x}", dis(gen));
   }
-  return ss.str();
+  return out;
 }
 
 JwtService make_jwt_service() {
@@ -45,22 +44,24 @@ JwtService make_jwt_service() {
     config_path = conf_path_c;
   }
 
-  LOG_INFO << "[make_jwt_service] VOTE_BACKEND_CONFPATH="
-           << (conf_path_c ? conf_path_c : "(null)");
-  LOG_INFO << "[make_jwt_service] config_path=" << config_path;
+  LOG_INFO << fmt::format("[make_jwt_service] VOTE_BACKEND_CONFPATH={}",
+                          conf_path_c ? conf_path_c : "(null)");
+  LOG_INFO << fmt::format("[make_jwt_service] config_path={}", config_path);
 
   Json::Value cfg;
   std::ifstream ifs(fmt::format("{}/config.json", config_path));
   if (ifs.is_open()) {
     ifs >> cfg;
     ifs.close();
-    LOG_INFO << "[make_jwt_service] Successfully loaded config.json";
-    LOG_INFO << "[make_jwt_service] jwt_secret length="
-             << cfg["jwt_secret"].asString().length();
+    LOG_INFO << fmt::format(
+        "[make_jwt_service] Successfully loaded config.json");
+    LOG_INFO << fmt::format("[make_jwt_service] jwt_secret length={}",
+                            cfg["jwt_secret"].asString().length());
   } else {
     // Fallback: use default values if the config cannot be read.
-    LOG_ERROR << "[make_jwt_service] Failed to open config.json at "
-              << config_path << ", using defaults";
+    LOG_ERROR << fmt::format(
+        "[make_jwt_service] Failed to open config.json at {}, using defaults",
+        config_path);
     cfg["jwt_secret"] = "change-me-to-a-strong-random-secret-key-min-32-chars";
     cfg["jwt_access_token_expiry_minutes"] = 15;
     cfg["jwt_refresh_token_expiry_days"] = 7;
@@ -94,10 +95,11 @@ std::string JwtService::generate_access_token(int64_t user_id,
                                               bool is_admin) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::minutes(access_expiry_minutes_);
-  LOG_INFO << "[JwtService] generate_access_token: access_expiry_minutes_="
-           << access_expiry_minutes_
-           << " now=" << std::chrono::system_clock::to_time_t(now)
-           << " exp=" << std::chrono::system_clock::to_time_t(exp);
+  LOG_INFO << fmt::format(
+      "[JwtService] generate_access_token: access_expiry_minutes_={} now={} "
+      "exp={}",
+      access_expiry_minutes_, std::chrono::system_clock::to_time_t(now),
+      std::chrono::system_clock::to_time_t(exp));
   auto token =
       jwt::create()
           .set_issuer("vote-backend")
@@ -117,10 +119,11 @@ std::string JwtService::generate_access_token(int64_t user_id,
 std::string JwtService::generate_refresh_token(int64_t user_id) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::hours(24 * refresh_expiry_days_);
-  LOG_INFO << "[JwtService] generate_refresh_token: refresh_expiry_days_="
-           << refresh_expiry_days_
-           << " now=" << std::chrono::system_clock::to_time_t(now)
-           << " exp=" << std::chrono::system_clock::to_time_t(exp);
+  LOG_INFO << fmt::format(
+      "[JwtService] generate_refresh_token: refresh_expiry_days_={} now={} "
+      "exp={}",
+      refresh_expiry_days_, std::chrono::system_clock::to_time_t(now),
+      std::chrono::system_clock::to_time_t(exp));
   auto token =
       jwt::create()
           .set_issuer("vote-backend")
