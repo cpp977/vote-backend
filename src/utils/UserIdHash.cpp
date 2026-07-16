@@ -1,10 +1,10 @@
 /**
  *
- *  UserIdHash.cc
+ *  UserIdHash.cpp
  *  Privacy-preserving hashing of user ids for anonymous answer tracking.
  */
 
-#include "vote-backend/utils/UserIdHash.h"
+#include "vote-backend/utils/UserIdHash.hpp"
 
 #include <fmt/format.h>
 #include <json/json.h>

@@ -1,10 +1,10 @@
 /**
  *
- *  AdminAuthFilter.cc
+ *  AdminAuthFilter.cpp
  *  Implementation of the admin-authorization filter.
  */
 
-#include "vote-backend/filters/AdminAuthFilter.h"
+#include "vote-backend/filters/AdminAuthFilter.hpp"
 
 #include <drogon/HttpAppFramework.h>
 #include <drogon/HttpResponse.h>
@@ -12,7 +12,7 @@
 
 #include <string>
 
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
 using namespace vote_backend::utils;

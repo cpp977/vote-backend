@@ -1,10 +1,10 @@
 /**
  *
- *  JwtAuthFilter.cc
+ *  JwtAuthFilter.cpp
  *  Implementation of the JWT authentication filter.
  */
 
-#include "vote-backend/filters/JwtAuthFilter.h"
+#include "vote-backend/filters/JwtAuthFilter.hpp"
 
 #include <drogon/HttpAppFramework.h>
 #include <drogon/HttpResponse.h>
@@ -12,7 +12,7 @@
 
 #include <unordered_set>
 
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
 using namespace vote_backend::utils;

@@ -17,9 +17,9 @@
 #include <string>
 #include <vector>
 
-#include "vote-backend/models/AnswerOptions.h"
-#include "vote-backend/models/Questions.h"
-#include "vote-backend/utils/UserIdHash.h"
+#include "vote-backend/models/AnswerOptions.hpp"
+#include "vote-backend/models/Questions.hpp"
+#include "vote-backend/utils/UserIdHash.hpp"
 
 using drogon::orm::DrogonDbException;
 using drogon::orm::Result;

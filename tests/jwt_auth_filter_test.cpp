@@ -6,8 +6,8 @@
 
 #include <string>
 
-#include "vote-backend/filters/JwtAuthFilter.h"
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/filters/JwtAuthFilter.hpp"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
 using namespace vote_backend::utils;

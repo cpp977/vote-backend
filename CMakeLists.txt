@@ -21,19 +21,19 @@ find_package(Boost COMPONENTS system REQUIRED)
 
 set(
     VOTE_BACKEND_SOURCES
-    include/vote-backend/controllers/CategoryController.cc
-    include/vote-backend/controllers/QuestionController.cc
-    include/vote-backend/models/UserAnswers.cc
-    include/vote-backend/models/Questions.cc
-    include/vote-backend/models/AnswerOptions.cc
-    include/vote-backend/models/Languages.cc
-    include/vote-backend/models/Categories.cc
-    include/vote-backend/models/Users.cc
-    src/controllers/AuthController.cc
-    src/utils/JwtService.cc
-    src/utils/UserIdHash.cc
-    src/filters/JwtAuthFilter.cc
-    src/filters/AdminAuthFilter.cc
+    src/controllers/AuthController.cpp
+    src/controllers/CategoryController.cpp
+    src/controllers/QuestionController.cpp
+    src/filters/JwtAuthFilter.cpp
+    src/filters/AdminAuthFilter.cpp
+    src/models/AnswerOptions.cpp
+    src/models/Categories.cpp
+    src/models/Languages.cpp
+    src/models/Questions.cpp
+    src/models/UserAnswers.cpp
+    src/models/Users.cpp
+    src/utils/JwtService.cpp
+    src/utils/UserIdHash.cpp
 )
 
 # main target

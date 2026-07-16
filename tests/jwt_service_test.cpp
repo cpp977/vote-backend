@@ -6,7 +6,7 @@
 #include <string>
 #include <thread>
 
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace vote_backend::utils;
 

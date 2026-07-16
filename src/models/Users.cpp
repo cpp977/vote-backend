@@ -1,10 +1,10 @@
 /**
  *
- *  Users.cc
+ *  Users.cpp
  *  This file is manually created to represent the authentication user.
  */
 
-#include "Users.h"
+#include "vote-backend/models/Users.hpp"
 
 #include <drogon/utils/Utilities.h>
 

@@ -1,6 +1,6 @@
 /**
  *
- *  AuthController.cc
+ *  AuthController.cpp
  *  Implementation of authentication endpoints.
  *
  *  Flow:
@@ -10,7 +10,7 @@
  *    /refresh   – exchange a valid refresh token for a new token pair.
  */
 
-#include "vote-backend/controllers/AuthController.h"
+#include "vote-backend/controllers/AuthController.hpp"
 
 #include <argon2.h>
 #include <drogon/HttpAppFramework.h>
@@ -25,8 +25,8 @@
 #include <iomanip>
 #include <sstream>
 
-#include "vote-backend/models/Users.h"
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/models/Users.hpp"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
 using namespace drogon_model::vote;

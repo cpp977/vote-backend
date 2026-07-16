@@ -7,8 +7,8 @@
 #include <chrono>
 #include <string>
 
-#include "vote-backend/filters/AdminAuthFilter.h"
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/filters/AdminAuthFilter.hpp"
+#include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
 using namespace vote_backend::utils;

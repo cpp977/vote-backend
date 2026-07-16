@@ -1,11 +1,11 @@
 /**
  *
- *  JwtService.cc
+ *  JwtService.cpp
  *  JWT token generation and verification implementation.
  *  Uses jwt-cpp (header-only) with OpenSSL for HS256 signing.
  */
 
-#include "vote-backend/utils/JwtService.h"
+#include "vote-backend/utils/JwtService.hpp"
 
 #include <fmt/core.h>
 #include <jwt-cpp/traits/open-source-parsers-jsoncpp/defaults.h>
