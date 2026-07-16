@@ -970,17 +970,19 @@ TEST_CASE("AnswerQuestion requires authentication (401)") {
 // GET /categories  (category language column added, mirroring questions)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("GetCategories returns the language field for every row") {
-  // The categories table now carries a `language` column (NOT NULL, FK to
-  // languages), mirroring how `questions.language` works. GET /categories
-  // must surface it for each seeded category.
-  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
-                                         "/categories", "", "application/json",
-                                         global_fixture.access_token);
+TEST_CASE(
+    "GetCategoriesByLanguage surfaces the language field as a 2-char ISO "
+    "code") {
+  // The categories table carries a `language` column (NOT NULL, FK to
+  // languages), mirroring how `questions.language` works. The dedicated
+  // /categories/lang/{lang} route must surface it for each returned category.
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories/lang/en", "", "application/json",
+      global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // 20 seed categories (10 EN + 10 DE) from 003_seed_data.sql.
-  CHECK(resp.json_body.size() == 20);
+  // 10 English seed categories from 003_seed_data.sql.
+  CHECK(resp.json_body.size() == 10);
 
   std::vector<std::string> expected_keys = {"id", "name", "language"};
   for (size_t i = 0; i < resp.json_body.size(); ++i) {
@@ -988,22 +990,27 @@ TEST_CASE("GetCategories returns the language field for every row") {
                                       "category[" + std::to_string(i) + "]");
     // language must be a 2-char ISO code, e.g. "en".
     CHECK(resp.json_body[i]["language"].is_string());
+    CHECK(resp.json_body[i]["language"].get<std::string>() == "en");
     CHECK(resp.json_body[i]["language"].get<std::string>().size() == 2);
   }
 }
 
-TEST_CASE("CreateCategory without language is rejected (400)") {
-  // `language` is now a NOT NULL column, so a category created without it
-  // must be rejected by the model validation before any DB write happens
-  // (no row is inserted, so this test leaves no residue).
-  nlohmann::json body;
-  body["name"] = "TestCategoryWithoutLanguage";
+TEST_CASE("BareCategoryEndpointsAreRemoved") {
+  // The generated RestfulCategoriesCtrl (GET/POST /categories and
+  // GET/PUT/DELETE /categories/{id}) was removed for security, so the bare
+  // endpoints must no longer be registered and return 404.
+  auto get_resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories", "", "application/json",
+      global_fixture.access_token);
+  CHECK(get_resp.status == 404);
 
-  auto resp = test_helpers::http_request(
+  nlohmann::json body;
+  body["name"] = "ShouldNotBeCreated";
+  body["language"] = "en";
+  auto post_resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/categories", body.dump(), "application/json",
       global_fixture.access_token);
-  CHECK(resp.status == 400);
-  CHECK(resp.json_body.contains("error"));
+  CHECK(post_resp.status == 404);
 }
 
 TEST_CASE("GetCategoriesByLanguage returns only English categories") {
@@ -1044,26 +1051,6 @@ TEST_CASE("GetCategoriesByLanguage for unknown language returns empty array") {
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
   CHECK(resp.json_body.empty());
-}
-
-TEST_CASE("CreateCategory with language succeeds (200)") {
-  // A well-formed category carrying a valid language code must be accepted.
-  // Uses a unique name so it does not collide with the UNIQUE constraint on
-  // the seed categories. Note: the generated REST controller's create()
-  // returns 200 (not 201) for a successful insertion.
-  nlohmann::json body;
-  body["name"] = "TestCategoryWithLanguage";
-  body["language"] = "en";
-
-  auto resp = test_helpers::http_request(
-      "POST", "127.0.0.1", 8848, "/categories", body.dump(), "application/json",
-      global_fixture.access_token);
-  CHECK(resp.status == 200);
-  CHECK(resp.json_body.contains("id"));
-  CHECK(resp.json_body.contains("name"));
-  CHECK(resp.json_body.contains("language"));
-  CHECK(resp.json_body["name"] == "TestCategoryWithLanguage");
-  CHECK(resp.json_body["language"] == "en");
 }
 
 // ---------------------------------------------------------------------------

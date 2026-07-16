@@ -107,7 +107,7 @@ a69355ee5ca7b8cf7d591cca68faa57a6ac7d2deaee1caf83acf4ff0c5b`
 - **Formatting**: Use `clang-format` (C++23) with the project's default style; run `CXX=clang++ cmake --workflow --preset check-format` before committing.
 - **Imports**: Prefer angle‑bracket includes for external libs (`<drogon/...>`) and quotes for project headers (`"vote-backend/..."`).
 - **Naming**:
-  - Types & classes: `PascalCase` (e.g., `RestfulUserAnswersCtrl`).
+  - Types & classes: `PascalCase` (e.g., `QuestionController`).
   - Variables & functions: `snake_case`.
   - Constants: `UPPER_SNAKE_CASE`.
 - **Types**: Enable `C++23`; avoid raw pointers, prefer `std::unique_ptr`/`std::shared_ptr` and `std::optional` where appropriate.

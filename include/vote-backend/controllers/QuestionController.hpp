@@ -5,9 +5,7 @@
 class QuestionController : public drogon::HttpController<QuestionController> {
  public:
   METHOD_LIST_BEGIN
-  // Standard REST endpoints for /questions (moved from the generated
-  // RestfulQuestionsCtrl so the generated controller can eventually be
-  // retired).
+  // Standard REST endpoints for /questions.
   ADD_METHOD_TO(QuestionController::get, "/questions", drogon::Get,
                 drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getOne, "/questions/{1}", drogon::Get,
@@ -96,7 +94,7 @@ class QuestionController : public drogon::HttpController<QuestionController> {
       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
       int questionId);
 
-  // --- Standard REST endpoints (moved from the generated RestfulQuestionsCtrl)
+  // --- Standard REST endpoints
   // GET /questions: list approved questions (public; requires a valid token).
   void get(const drogon::HttpRequestPtr& req,
            std::function<void(const drogon::HttpResponsePtr&)>&& cb);

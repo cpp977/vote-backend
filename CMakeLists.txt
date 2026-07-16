@@ -21,14 +21,6 @@ find_package(Boost COMPONENTS system REQUIRED)
 
 set(
     VOTE_BACKEND_SOURCES
-    include/vote-backend/controllers/RestfulUserAnswersCtrlBase.cc
-    include/vote-backend/controllers/RestfulUserAnswersCtrl.cc
-    include/vote-backend/controllers/RestfulQuestionsCtrlBase.cc
-    include/vote-backend/controllers/RestfulQuestionsCtrl.cc
-    include/vote-backend/controllers/RestfulAnswerOptionsCtrlBase.cc
-    include/vote-backend/controllers/RestfulAnswerOptionsCtrl.cc
-    include/vote-backend/controllers/RestfulCategoriesCtrlBase.cc
-    include/vote-backend/controllers/RestfulCategoriesCtrl.cc
     include/vote-backend/controllers/CategoryController.cc
     include/vote-backend/controllers/QuestionController.cc
     include/vote-backend/models/UserAnswers.cc

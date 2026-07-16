@@ -5,9 +5,8 @@
 /**
  * @brief Non-generated controller for category-specific endpoints.
  *
- * Kept separate from the drogon_ctl-generated RestfulCategoriesCtrl so that
- * hand-written business logic (e.g. filtering by language) is not overwritten
- * when the REST scaffold is regenerated.
+ * Provides the hand-written category endpoints (e.g. filtering by language),
+ * kept separate from any generated REST scaffold.
  */
 class CategoryController : public drogon::HttpController<CategoryController> {
  public:
