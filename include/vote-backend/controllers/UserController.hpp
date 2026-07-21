@@ -3,7 +3,8 @@
  *  UserController.h
  *  Controller for admin-only user management endpoints.
  *
- *  Provides an endpoint that lists all users by their usernames only.
+ *  Provides an endpoint that lists all users by their id and username.
+ *  Returns a JSON array of user objects containing id and username fields only.
  *  Requires the AdminAuthFilter to access.
  */
 

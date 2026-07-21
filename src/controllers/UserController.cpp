@@ -4,7 +4,7 @@
  *  Implementation of the admin-only user management controller.
  *
  *  Endpoint: GET /admin/users
- *  Returns: JSON array of usernames only (no sensitive data).
+ *  Returns: JSON array of user objects containing id and username fields only.
  */
 
 #include "vote-backend/controllers/UserController.hpp"
@@ -33,8 +33,8 @@ void UserController::list_users(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(cb));
 
-  // Query to retrieve all usernames only
-  const std::string sql = "SELECT username FROM users ORDER BY username";
+  // Query to retrieve both user IDs and usernames
+  const std::string sql = "SELECT id, username FROM users ORDER BY username";
 
   dbClient->execSqlAsync(
       sql,
@@ -42,8 +42,11 @@ void UserController::list_users(
         try {
           Json::Value arr(Json::arrayValue);
           for (const auto& row : r) {
-            // Only return the username field - no other user data
-            arr.append(row.at("username").as<std::string>());
+            // Return both ID and username fields
+            Json::Value userObj;
+            userObj["id"] = row.at("id").as<int64_t>();
+            userObj["username"] = row.at("username").as<std::string>();
+            arr.append(userObj);
           }
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
