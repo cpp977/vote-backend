@@ -345,6 +345,64 @@ TEST_CASE("SearchQuestions returns all fields for each result") {
 }
 
 // ---------------------------------------------------------------------------
+// Admin endpoints
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Admin only endpoint lists all usernames") {
+  // Login as an admin user (Admin from seed data)
+  auto admin_token = test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/admin/users", "", "application/json", admin_token);
+  // The response should be a JSON array (will be checked by framework)
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  // The endpoint should return usernames only, no sensitive data
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i].is_string());
+    CHECK(!resp.json_body[i].empty());
+  }
+}
+
+TEST_CASE("Admin endpoint requires admin privileges") {
+  // Login as a non-admin user (Jim / 12345678 from seed data)
+  auto user_token = test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // This user should NOT have access to the admin endpoint
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/admin/users", "", "application/json", user_token);
+  // Should return 403 Forbidden as per AdminAuthFilter
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Admin endpoint returns usernames only, no sensitive data") {
+  // Login as an admin user
+  auto admin_token = test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/admin/users", "", "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  
+  // Verify that only strings are returned (usernames)
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i].is_string());
+  }
+  
+  // Verify that sensitive fields (email, password_hash, etc.) are not exposed
+  // by checking that we only get strings, not objects with sensitive fields
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    const auto& username_field = resp.json_body[i];
+    // Should be just a string, not an object
+    CHECK_FALSE(username_field.is_object());
+    // Should not contain email, password_hash, id, etc.
+    if (username_field.is_string()) {
+      // This is what we expect - just the username string
+      CHECK(username_field.get<std::string>().find('@') == std::string::npos);
+      CHECK(username_field.get<std::string>().find(' ') == std::string::npos);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // POST /questions/restSearch  (RESTful search endpoint)
 // ---------------------------------------------------------------------------
 

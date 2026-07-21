@@ -24,6 +24,7 @@ set(
     src/controllers/AuthController.cpp
     src/controllers/CategoryController.cpp
     src/controllers/QuestionController.cpp
+    src/controllers/UserController.cpp
     src/filters/JwtAuthFilter.cpp
     src/filters/AdminAuthFilter.cpp
     src/models/AnswerOptions.cpp
