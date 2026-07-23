@@ -24,6 +24,7 @@
 #include <fstream>
 
 #include "vote-backend/models/Users.hpp"
+#include "vote-backend/utils/ErrorResponse.hpp"
 #include "vote-backend/utils/JwtService.hpp"
 
 using namespace drogon;
@@ -101,18 +102,6 @@ std::string sha256_hex(const std::string& input) {
   for (unsigned int i = 0; i < hash_len; ++i)
     out += fmt::format("{:02x}", static_cast<int>(hash[i]));
   return out;
-}
-
-/**
- * @brief Helper to send a JSON error response.
- */
-void send_error(const std::function<void(const HttpResponsePtr&)>& cb,
-                const std::string& msg, HttpStatusCode code) {
-  Json::Value err;
-  err["error"] = msg;
-  auto resp = HttpResponse::newHttpJsonResponse(err);
-  resp->setStatusCode(code);
-  cb(resp);
 }
 
 }  // anonymous namespace

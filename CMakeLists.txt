@@ -35,6 +35,7 @@ set(
     src/models/Users.cpp
     src/utils/JwtService.cpp
     src/utils/UserIdHash.cpp
+    src/utils/ErrorResponse.cpp
 )
 
 # main target

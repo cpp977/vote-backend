@@ -407,6 +407,105 @@ TEST_CASE("Admin endpoint returns usernames and IDs, no sensitive data") {
 }
 
 // ---------------------------------------------------------------------------
+// GET /admin/users/{id}  (single user endpoint)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "Admin endpoint gets user by ID returns all fields except password_hash") {
+  // Login as an admin user
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  // Get Admin user ID from the seed data (Admin has id=1)
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/1", "",
+                                 "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_object());
+
+  // Verify all expected fields are present
+  std::vector<std::string> expected_fields = {
+      "id",          "username",   "email",      "birth_year", "gender",
+      "nationality", "created_at", "updated_at", "is_admin"};
+  for (const auto& field : expected_fields) {
+    CHECK(resp.json_body.contains(field));
+  }
+
+  // Verify field types
+  CHECK(resp.json_body["id"].is_number());
+  CHECK(resp.json_body["username"].is_string());
+  CHECK(resp.json_body["email"].is_string());
+  CHECK(resp.json_body["birth_year"].is_number());
+  CHECK(resp.json_body["gender"].is_string());
+  CHECK(resp.json_body["nationality"].is_string());
+  CHECK(resp.json_body["created_at"].is_string());
+  CHECK(resp.json_body["updated_at"].is_string());
+  CHECK(resp.json_body["is_admin"].is_boolean());
+
+  // Verify password_hash is NOT present (security requirement)
+  CHECK_FALSE(resp.json_body.contains("password_hash"));
+
+  // Verify specific Jim user data from seed data
+  CHECK(resp.json_body["username"] == "Jim");
+  CHECK(resp.json_body["email"] == "jim@example.com");
+  CHECK(resp.json_body["gender"] == "m");
+  CHECK(resp.json_body["is_admin"] == false);
+}
+
+TEST_CASE("Admin endpoint gets non-existent user by ID returns 404") {
+  // Login as an admin user
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/99999",
+                                 "", "application/json", admin_token);
+  CHECK(resp.status == 404);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Admin endpoint gets regular user by ID returns complete data") {
+  // Login as an admin user
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  // Get Jim user (id=2 from seed data)
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/2", "",
+                                 "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_object());
+
+  // Verify all fields except password_hash are present
+  CHECK(resp.json_body.contains("id"));
+  CHECK(resp.json_body.contains("username"));
+  CHECK(resp.json_body.contains("email"));
+  CHECK(resp.json_body.contains("birth_year"));
+  CHECK(resp.json_body.contains("gender"));
+  CHECK(resp.json_body.contains("nationality"));
+  CHECK(resp.json_body.contains("created_at"));
+  CHECK(resp.json_body.contains("updated_at"));
+  CHECK(resp.json_body.contains("is_admin"));
+  CHECK_FALSE(resp.json_body.contains("password_hash"));
+
+  // Verify Admin's data from seed data
+  CHECK(resp.json_body["username"] == "Admin");
+  CHECK(resp.json_body["email"] == "admin@example.com");
+  CHECK(resp.json_body["gender"] == "w");
+  CHECK(resp.json_body["is_admin"] == true);
+}
+
+TEST_CASE("Admin endpoint requires admin privileges for single user access") {
+  // Login as a non-admin user (Jim / 12345678 from seed data)
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // This user should NOT have access to the admin endpoint
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/1", "",
+                                 "application/json", user_token);
+  // Should return 403 Forbidden as per AdminAuthFilter
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+// ---------------------------------------------------------------------------
 // POST /questions/restSearch  (RESTful search endpoint)
 // ---------------------------------------------------------------------------
 
