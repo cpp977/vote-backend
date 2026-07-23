@@ -125,3 +125,93 @@ void UserController::get_user_by_id(
       },
       user_id);
 }
+
+void UserController::set_user_inactive(
+    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
+    int64_t user_id) {
+  auto dbClient = app().getDbClient();
+
+  const std::string sql =
+      "UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1 "
+      "RETURNING id, is_active";
+
+  dbClient->execSqlAsync(
+      sql,
+      [cb](const Result& r) {
+        try {
+          if (r.size() == 0) {
+            send_error(cb, "User not found", k404NotFound);
+            return;
+          }
+
+          const auto& row = r[0];
+          Json::Value respObj;
+          respObj["id"] = row.at("id").as<int64_t>();
+          respObj["is_active"] = row.at("is_active").as<bool>();
+          respObj["message"] = "User set to inactive";
+
+          (cb)(HttpResponse::newHttpJsonResponse(respObj));
+        } catch (const std::exception& e) {
+          LOG_ERROR << fmt::format(
+              "UserController::set_user_inactive failed: {}", e.what());
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (cb)(resp);
+        }
+      },
+      [cb](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format(
+            "UserController::set_user_inactive DB error: {}", e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (cb)(resp);
+      },
+      user_id);
+}
+
+void UserController::set_user_active(
+    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
+    int64_t user_id) {
+  auto dbClient = app().getDbClient();
+
+  const std::string sql =
+      "UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1 "
+      "RETURNING id, is_active";
+
+  dbClient->execSqlAsync(
+      sql,
+      [cb](const Result& r) {
+        try {
+          if (r.size() == 0) {
+            send_error(cb, "User not found", k404NotFound);
+            return;
+          }
+
+          const auto& row = r[0];
+          Json::Value respObj;
+          respObj["id"] = row.at("id").as<int64_t>();
+          respObj["is_active"] = row.at("is_active").as<bool>();
+          respObj["message"] = "User set to active";
+
+          (cb)(HttpResponse::newHttpJsonResponse(respObj));
+        } catch (const std::exception& e) {
+          LOG_ERROR << fmt::format("UserController::set_user_active failed: {}",
+                                   e.what());
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (cb)(resp);
+        }
+      },
+      [cb](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("UserController::set_user_active DB error: {}",
+                                 e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (cb)(resp);
+      },
+      user_id);
+}

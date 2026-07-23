@@ -508,6 +508,94 @@ TEST_CASE("Admin endpoint requires admin privileges for single user access") {
 }
 
 // ---------------------------------------------------------------------------
+// Admin endpoints for user status (activate/deactivate)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "Admin endpoint sets user inactive (POST /admin/users/{id}/inactive)") {
+  // Login as an admin user
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  // User 1 (Jim) should be active from seed data
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/1/inactive", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("id"));
+  CHECK(resp.json_body["id"] == 1);
+  CHECK(resp.json_body.contains("is_active"));
+  CHECK(resp.json_body["is_active"] == false);
+  CHECK(resp.json_body.contains("message"));
+  CHECK(resp.json_body["message"] == "User set to inactive");
+}
+
+TEST_CASE("Admin endpoint sets user active (POST /admin/users/{id}/active)") {
+  // First, we need to set a user inactive (User 2 / Jim)
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Now, set the user back to active
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/1/active", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("id"));
+  CHECK(resp.json_body["id"] == 1);
+  CHECK(resp.json_body.contains("is_active"));
+  CHECK(resp.json_body["is_active"] == true);
+  CHECK(resp.json_body.contains("message"));
+  CHECK(resp.json_body["message"] == "User set to active");
+}
+
+TEST_CASE("Admin endpoint sets non-existent user inactive returns 404") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/99999/inactive", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 404);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Admin endpoint sets non-existent user active returns 404") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/99999/active", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 404);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Non-admin user cannot set user inactive") {
+  // Login as a non-admin user (Jim / 12345678 from seed data)
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // This user should NOT have access to the admin endpoint
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/2/inactive", "",
+                                         "application/json", user_token);
+  // Should return 403 Forbidden as per AdminAuthFilter
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Inactive user cannot set user active") {
+  // Login as the inactive user from seed data
+  auto inactive_token =
+      test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+
+  // This inactive user should NOT have access to the admin endpoint
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/users/2/active", "",
+                                         "application/json", inactive_token);
+  // Should return 423 Locked due to AdminAuthFilter checking is_active
+  CHECK(resp.status == 423);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "User account is not active");
+}
+
+// ---------------------------------------------------------------------------
 // POST /questions/restSearch  (RESTful search endpoint)
 // ---------------------------------------------------------------------------
 
