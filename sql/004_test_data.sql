@@ -5,14 +5,15 @@
 -- ---------------------------------------------------------------------------
 -- Regular test user (password: 12345678, hashed with argon2id)
 -- ---------------------------------------------------------------------------
-INSERT INTO users (username, email, password_hash, birth_year, gender, nationality)
+INSERT INTO users (username, email, password_hash, birth_year, gender, nationality, is_active)
 VALUES (
   'Jim',
   'jim@example.com',
   '$argon2id$v=19$m=65536,t=2,p=1$7IwaKiaTuSf8MV6JOC/InA$KPZSbQabGbDdhRz1JtzjWUk4wokot/5PebP8xmP/nzQ',
   1990,
   'm',
-  'US'
+  'US',
+  TRUE
 );
 
 -- ---------------------------------------------------------------------------
@@ -29,6 +30,21 @@ VALUES (
   'w',
   'US',
   TRUE
+);
+
+-- ---------------------------------------------------------------------------
+-- Inactive test user (password: 12345678, hashed with argon2id)
+-- Flagged as inactive so that authentication tests can verify the 423 response.
+-- ---------------------------------------------------------------------------
+INSERT INTO users (username, email, password_hash, birth_year, gender, nationality, is_active)
+VALUES (
+  'InactiveUser',
+  'inactive@example.com',
+  '$argon2id$v=19$m=65536,t=2,p=1$7IwaKiaTuSf8MV6JOC/InA$KPZSbQabGbDdhRz1JtzjWUk4wokot/5PebP8xmP/nzQ',
+  1995,
+  'w',
+  'CA',
+  FALSE
 );
 
 -- ---------------------------------------------------------------------------

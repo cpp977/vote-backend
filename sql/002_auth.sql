@@ -9,6 +9,7 @@ CREATE TABLE users (
     gender CHAR(1) CHECK (gender IN ('m', 'w', 'd')),
     nationality VARCHAR(100),
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -143,6 +143,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
             .set_expires_at(now + std::chrono::minutes(15))
             .set_payload_claim("username", jwt::claim(std::string("admin")))
             .set_payload_claim("type", jwt::claim(std::string("access")))
+            .set_payload_claim("is_active", jwt::claim(true))
             .set_id("no-is-admin-jti")
             .sign(jwt::algorithm::hs256{
                 "test-secret-key-for-unit-tests-only-32chars"});

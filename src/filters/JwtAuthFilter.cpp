@@ -76,6 +76,17 @@ void JwtAuthFilter::doFilter(const HttpRequestPtr& req,
     return;
   }
 
+  // Check if user is active
+  if (!claims.isMember("is_active") || claims["is_active"].isNull() ||
+      !claims["is_active"].asBool()) {
+    Json::Value err;
+    err["error"] = "User account is not active";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k423Locked);
+    filterCb(resp);
+    return;
+  }
+
   // Continue processing.
   nextCb();
 }

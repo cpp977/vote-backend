@@ -22,7 +22,7 @@ void AdminAuthFilter::doFilter(const HttpRequestPtr& req,
                                FilterChainCallback&& nextCb) {
   // 1. Require a Bearer token.
   auto authHeader = req->getHeader("Authorization");
-  if (authHeader.empty() || authHeader.find("Bearer ") != 0) {
+  if (authHeader.empty() || !authHeader.starts_with("Bearer ")) {
     Json::Value err;
     err["error"] = "Missing or malformed Authorization header";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -42,6 +42,17 @@ void AdminAuthFilter::doFilter(const HttpRequestPtr& req,
     err["error"] = "Invalid or expired token";
     auto resp = HttpResponse::newHttpJsonResponse(err);
     resp->setStatusCode(k401Unauthorized);
+    filterCb(resp);
+    return;
+  }
+
+  // Check if user is active
+  if (!claims.isMember("is_active") || claims["is_active"].isNull() ||
+      !claims["is_active"].asBool()) {
+    Json::Value err;
+    err["error"] = "User account is not active";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k423Locked);
     filterCb(resp);
     return;
   }

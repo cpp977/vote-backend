@@ -422,10 +422,10 @@ TEST_CASE(
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_object());
 
-  // Verify all expected fields are present
+  // Verify all expected fields are present (including the new is_active field)
   std::vector<std::string> expected_fields = {
       "id",          "username",   "email",      "birth_year", "gender",
-      "nationality", "created_at", "updated_at", "is_admin"};
+      "nationality", "created_at", "updated_at", "is_admin",   "is_active"};
   for (const auto& field : expected_fields) {
     CHECK(resp.json_body.contains(field));
   }
@@ -440,6 +440,7 @@ TEST_CASE(
   CHECK(resp.json_body["created_at"].is_string());
   CHECK(resp.json_body["updated_at"].is_string());
   CHECK(resp.json_body["is_admin"].is_boolean());
+  CHECK(resp.json_body["is_active"].is_boolean());
 
   // Verify password_hash is NOT present (security requirement)
   CHECK_FALSE(resp.json_body.contains("password_hash"));
@@ -473,7 +474,7 @@ TEST_CASE("Admin endpoint gets regular user by ID returns complete data") {
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_object());
 
-  // Verify all fields except password_hash are present
+  // Verify all fields except password_hash are present (including is_active)
   CHECK(resp.json_body.contains("id"));
   CHECK(resp.json_body.contains("username"));
   CHECK(resp.json_body.contains("email"));
@@ -483,6 +484,7 @@ TEST_CASE("Admin endpoint gets regular user by ID returns complete data") {
   CHECK(resp.json_body.contains("created_at"));
   CHECK(resp.json_body.contains("updated_at"));
   CHECK(resp.json_body.contains("is_admin"));
+  CHECK(resp.json_body.contains("is_active"));
   CHECK_FALSE(resp.json_body.contains("password_hash"));
 
   // Verify Admin's data from seed data
@@ -1711,4 +1713,50 @@ TEST_CASE("AdminGetAnswerOptions returns 404 for a non-existent question") {
                                          "/admin/questions/999999/answers", "",
                                          "application/json", admin_token);
   CHECK(resp.status == 404);
+}
+
+// ---------------------------------------------------------------------------
+// Inactive user tests (HTTP 423 for secured endpoints)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("InactiveUser cannot access admin users list (403 status)") {
+  // Login as the inactive user from seed data
+  auto inactive_token =
+      test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+
+  // This should return 423 Locked due to AdminAuthFilter checking is_active
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users", "",
+                                 "application/json", inactive_token);
+  CHECK(resp.status == 423);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "User account is not active");
+}
+
+TEST_CASE("InactiveUser cannot access admin user details (423 status)") {
+  // Login as the inactive user from seed data
+  auto inactive_token =
+      test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+
+  // Access a specific user endpoint with admin filter
+  auto resp =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/1", "",
+                                 "application/json", inactive_token);
+  CHECK(resp.status == 423);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "User account is not active");
+}
+
+TEST_CASE("InactiveUser cannot access categories (423 status)") {
+  // Login as the inactive user from seed data
+  auto inactive_token =
+      test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+
+  // Access a specific user endpoint with admin filter
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/categories/lang/en", "",
+                                         "application/json", inactive_token);
+  CHECK(resp.status == 423);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "User account is not active");
 }

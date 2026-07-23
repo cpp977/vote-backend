@@ -92,14 +92,15 @@ JwtService::JwtService(const std::string& secret, int access_expiry_minutes,
 
 std::string JwtService::generate_access_token(int64_t user_id,
                                               const std::string& username,
-                                              bool is_admin) const {
+                                              bool is_admin,
+                                              bool is_active) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::minutes(access_expiry_minutes_);
   LOG_INFO << fmt::format(
       "[JwtService] generate_access_token: access_expiry_minutes_={} now={} "
-      "exp={}",
+      "exp={} user_id={} is_active={}",
       access_expiry_minutes_, std::chrono::system_clock::to_time_t(now),
-      std::chrono::system_clock::to_time_t(exp));
+      std::chrono::system_clock::to_time_t(exp), user_id, is_active);
   auto token =
       jwt::create()
           .set_issuer("vote-backend")
@@ -110,6 +111,7 @@ std::string JwtService::generate_access_token(int64_t user_id,
           .set_payload_claim("username", jwt::claim(username))
           .set_payload_claim("type", jwt::claim(std::string("access")))
           .set_payload_claim("is_admin", jwt::claim(Json::Value(is_admin)))
+          .set_payload_claim("is_active", jwt::claim(Json::Value(is_active)))
           .set_id(generate_jti())
           .sign(jwt::algorithm::hs256{secret_});
 
@@ -132,6 +134,7 @@ std::string JwtService::generate_refresh_token(int64_t user_id) const {
           .set_issued_at(now)
           .set_expires_at(exp)
           .set_payload_claim("type", jwt::claim(std::string("refresh")))
+          .set_payload_claim("is_active", jwt::claim(Json::Value(true)))
           .set_id(generate_jti())
           .sign(jwt::algorithm::hs256{secret_});
 

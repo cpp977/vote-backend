@@ -439,7 +439,8 @@ void AuthController::login(const HttpRequestPtr& req,
   auto db = app().getDbClient();
 
   db->execSqlAsync(
-      "SELECT id, username, email, password_hash, is_admin FROM users WHERE "
+      "SELECT id, username, email, password_hash, is_admin, is_active FROM "
+      "users WHERE "
       "username = $1",
       [cb, db, password](const drogon::orm::Result& r) {
         if (r.size() == 0) {
@@ -458,11 +459,12 @@ void AuthController::login(const HttpRequestPtr& req,
         int64_t user_id = row["id"].as<int64_t>();
         std::string uname = row["username"].as<std::string>();
         bool is_admin = row["is_admin"].as<bool>();
+        bool is_active = row["is_active"].as<bool>();
 
         // Generate tokens
         auto jwt_svc = vote_backend::utils::make_jwt_service();
         std::string access_token =
-            jwt_svc.generate_access_token(user_id, uname, is_admin);
+            jwt_svc.generate_access_token(user_id, uname, is_admin, is_active);
         std::string refresh_token = jwt_svc.generate_refresh_token(user_id);
 
         // Store refresh token hash in DB
@@ -822,7 +824,8 @@ void AuthController::refresh(const HttpRequestPtr& req,
 
                     // Generate new token pair
                     std::string new_access = jwt_svc.generate_access_token(
-                        user_id, username, is_admin);
+                        user_id, username, is_admin,
+                        true);  // Always true for refresh token generation
                     std::string new_refresh =
                         jwt_svc.generate_refresh_token(user_id);
                     std::string new_hash = sha256_hex(new_refresh);

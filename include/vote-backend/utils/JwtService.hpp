@@ -38,11 +38,14 @@ public:
      * @param username The user's username.
      * @param is_admin Whether the user has admin privileges. Embedded as the
      *                 `is_admin` claim so the AdminAuthFilter can enforce it.
+     * @param is_active Whether the user account is active. Embedded as the
+     *                  `is_active` claim so the JwtAuthFilter can enforce it.
      * @return The encoded JWT string.
      */
     std::string generate_access_token(int64_t user_id,
                                       const std::string &username,
-                                      bool is_admin = false) const;
+                                      bool is_admin = false,
+                                      bool is_active = true) const;
 
     /**
      * @brief Generate a long-lived refresh token.
