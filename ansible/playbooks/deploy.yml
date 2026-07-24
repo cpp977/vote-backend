@@ -1,0 +1,122 @@
+---
+# playbooks/deploy.yml
+# Target 2b: Local deployment for running vote-backend as a service.
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/deploy.yml
+#
+# This playbook deploys a persistent, production-like setup:
+#   1. Builds the Containerfile image (on hosts with the repo checked out;
+#      see vote_backend_build_on_target) or uses a prebuilt/pulled image
+#   2. Installs quadlets (network, postgres, app, nginx) into the user systemd
+#      instance
+#   3. The PostgreSQL data directory is bind-mounted from
+#      ~/.local/share/vote-backend/postgres/18 so data survives container restarts
+#   4. Obtains a Let's Encrypt certificate for {{ vote_backend_acme_domain }}
+#      via acme.sh (http-01 challenge, standalone on port 80, run rootful)
+#   5. Reloads the user systemd daemon
+#   6. Starts and enables the database, backend, and nginx services
+#
+# The nginx reverse proxy terminates TLS for {{ vote_backend_acme_domain }} and
+# proxies to vote-backend. Point the public DNS name {{ vote_backend_acme_domain }}
+# at this host and ensure port 80 (for the ACME http-01 challenge) and the
+# nginx publish port (8443) are reachable.
+#
+# Targets the "dev" inventory group (currently just localhost) so an additional
+# SSH-reachable host can be added later without changing this playbook. The
+# sibling deploy-local.yml / deploy-local-test.yml playbooks remain scoped to
+# localhost only.
+
+- name: Deploy vote-backend (Podman, persistent database, Let's Encrypt TLS)
+  hosts: dev
+  gather_facts: true
+
+  # # If host is an SSH remote (not localhost) we need to:
+  # # 1. Build the image on localhost
+  # # 2. Push it to the remote host
+  # # 3. Set up SSH forwarding for podman commands
+  pre_tasks:
+    - name: Build and push container image to remote host if not localhost
+      block:
+        - name: Check if host is not localhost
+          ansible.builtin.debug:
+            msg: "Target is {{ inventory_hostname }} (remote deployment)"
+          when: inventory_hostname != 'localhost'
+
+        - name: Build vote-backend container image
+          containers.podman.podman_image:
+            name: "{{ vote_backend_image_name }}"
+            tag: "{{ vote_backend_image_tag }}"
+            state: build
+            path: "{{ vote_backend_project_root }}"
+            build:
+              file: "{{ vote_backend_project_root }}/Containerfile"
+              force_rm: true
+          delegate_to: localhost
+          register: local_image_build
+          when: inventory_hostname != 'localhost'
+
+        - name: Creates directory for image tarball
+          ansible.builtin.file:
+            path: "/tmp/{{ vote_backend_image_registry }}"
+            state: directory
+          delegate_to: localhost
+          when: inventory_hostname != 'localhost'
+
+        - name: Export image to tarball
+          ansible.builtin.command: >
+            podman save -o /tmp/{{ vote_backend_image_name }}.tar
+            {{ vote_backend_image_name }}:{{ vote_backend_image_tag }}
+          delegate_to: localhost
+          when: inventory_hostname != 'localhost'
+
+        - name: Copy image tarball to remote host
+          ansible.builtin.copy:
+            src: /tmp/{{ vote_backend_image_name }}.tar
+            dest: "~/{{ vote_backend_image_name }}.tar"
+          when: inventory_hostname != 'localhost'
+
+        - name: Remove local image tarball
+          ansible.builtin.file:
+            path: "/tmp/{{ vote_backend_image_name }}.tar"
+            state: absent
+          delegate_to: localhost
+          when: inventory_hostname != 'localhost'
+
+        - name: Load image on remote host
+          ansible.builtin.command: >
+            podman load -i ~/{{ vote_backend_image_name }}.tar
+          when: inventory_hostname != 'localhost'
+
+    - name: Copy quadlets over to remote host
+      ansible.builtin.copy:
+        src: "{{ vote_backend_project_root }}/quadlets"
+        dest: "~/"
+      when: inventory_hostname != 'localhost'
+
+    # The dns-01 challenge needs the DNS provider token. Fail fast with a clear
+    # message if it was not supplied (vault, --extra-vars, or host_vars).
+    - name: Assert DNS provider token is defined for dns-01 challenge
+      ansible.builtin.assert:
+        that:
+          - vote_backend_acme_dns_token | length > 0
+        fail_msg: >-
+          vote_backend_acme_dns_token is empty. Provide the DuckDNS token, e.g.
+          ansible-playbook ansible/playbooks/deploy.yml
+          -e vote_backend_acme_dns_token=YOUR_DUCKDNS_TOKEN
+          (or store it vault-encrypted in host_vars).
+      when: vote_backend_acme_method == 'dns'
+
+  vars:
+    vote_backend_project_root: "{{ playbook_dir }}/../.."
+    vote_backend_postgres_persistent: true
+    # Enable Let's Encrypt certificate issuance via acme.sh for this playbook.
+    vote_backend_acme_enabled: true
+    # Use the dns-01 challenge (no inbound firewall port required) via the DNS
+    # provider API. The token is supplied at runtime (see below), not committed.
+    vote_backend_acme_method: "dns"
+    # Serve/provision the certificate for the publicly reachable domain.
+    vote_backend_nginx_server_name: "{{ vote_backend_acme_domain }}"
+
+  roles:
+    - role: deploy-local

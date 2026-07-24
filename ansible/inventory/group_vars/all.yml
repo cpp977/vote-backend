@@ -10,9 +10,21 @@ vote_backend_test_preset_debug: test-debug
 vote_backend_test_preset_release: test-release
 
 # Deployment – local (Podman quadlets)
-vote_backend_image_name: localhost/vote-backend
+vote_backend_image_registry: localhost
+vote_backend_image_name: "{{ vote_backend_image_registry }}/vote-backend"
 vote_backend_image_tag: "{{ lookup('file', vote_backend_project_root ~ '/version.txt') | trim }}"
+
+# When true the container image is BUILT on the target host from the checked-out
+# repo (vote_backend_project_root) and config.json/sql are copied from the repo
+# into the target's home directory. This is correct for localhost and any host
+# that has the repo checked out. For a remote SSH host that does NOT have the
+# repo (or should not build locally), set this to false and provide a
+# prebuilt/pulled image via vote_backend_image_name/vote_backend_image_tag
+# instead. The deploy.yml playbook keeps this true so the current localhost
+# behaviour is unchanged; a later SSH host can override it in host_vars.
+vote_backend_build_on_target: true
 vote_backend_quadlet_dir: "{{ vote_backend_project_root }}/quadlets"
+vote_backend_quadlet_dir_default: "{{ vote_backend_project_root }}/quadlets"
 vote_backend_uid: "{{ ansible_facts['user_uid'] | default(1000) }}"
 
 # PostgreSQL persistence for local deployments.
@@ -32,4 +44,45 @@ vote_backend_postgres_data_dir: "{{ ansible_facts['env']['HOME'] }}/.local/share
 # lives under the user's home directory (outside the git repository). Replace
 # the files in that directory with a real certificate to use a CA-signed one.
 vote_backend_tls_dir: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/tls"
-vote_backend_nginx_conf: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/nginx.conf"
+vote_backend_nginx_conf: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/default.conf"
+
+# nginx server_name served by the reverse proxy. Defaults to the local
+# placeholder; the deploy.yml playbook overrides this with the real ACME domain
+# so the TLS certificate (Let's Encrypt) matches the requested host.
+vote_backend_nginx_server_name: "vote-backend.local"
+
+# --- Let's Encrypt certificate issuance via acme.sh --------------------------
+# When vote_backend_acme_enabled is true the deploy-local role skips the
+# self-signed certificate generation and instead uses acme.sh to obtain a
+# CA-signed certificate (http-01 challenge). This requires the domain to be
+# publicly reachable on port 80, so acme.sh is run ROOTFUL on the host with its
+# built-in standalone webserver (--standalone) listening on port 80.
+#
+# The issued certificate is deployed into vote_backend_tls_dir (the same
+# directory the nginx container mounts read-only), replacing the self-signed
+# files. Keep this disabled for the local/self-signed deployments
+# (deploy-local, deploy-local-test); only the deploy.yml playbook enables it.
+vote_backend_acme_enabled: false
+vote_backend_acme_domain: "vote-backend.duckdns.org"
+# Challenge method: "http" (http-01, standalone on port 80) is the only method
+# supported by this role for now.
+# Challenge method: "dns" (dns-01, no inbound port required) or "http"
+# (http-01, acme.sh standalone webserver on port 80). dns-01 is preferred
+# because it needs no open firewall port and also supports wildcard certs.
+vote_backend_acme_method: "dns"
+# DNS API provider hook used for the dns-01 challenge. "dns_duckdns" is the
+# built-in acme.sh hook for DuckDNS. Provide the provider-specific credentials
+# via vote_backend_acme_dns_token (see below).
+vote_backend_acme_dns_provider: "dns_duckdns"
+# DNS provider API token for the dns-01 challenge (e.g. the DuckDNS token from
+# https://www.duckdns.org/accounts). This is a SECRET: do NOT commit it. Supply
+# it at runtime via --extra-vars, an Ansible vault, or host_vars (vault-encrypted),
+# e.g.  ansible-playbook ansible/playbooks/deploy.yml -e vote_backend_acme_dns_token=xxxx
+# The deploy.yml playbook asserts the token is defined when method is "dns".
+# At issuance acme.sh's dns_duckdns hook receives it as the DuckDNS_Token env var.
+vote_backend_acme_dns_token: ""
+# Rootful install location for acme.sh (run as root on the host).
+vote_backend_acme_install_dir: "/root/.acme.sh"
+# Staging vs production Let's Encrypt endpoint. Use "staging" while testing to
+# avoid rate limits; switch to "production" for real certificates.
+vote_backend_acme_ca: "production"

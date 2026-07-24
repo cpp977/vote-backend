@@ -1,0 +1,134 @@
+---
+# roles/deploy-local/tasks/acme.yml
+# Let's Encrypt certificate issuance via acme.sh for the persistent deployment.
+#
+# This task file is included by main.yml only when BOTH of the following hold:
+#   - vote_backend_postgres_persistent is true (nginx reverse proxy is deployed)
+#   - vote_backend_acme_enabled is true
+#
+# The default challenge is dns-01 (vote_backend_acme_method: "dns"), which uses
+# the DNS provider API (e.g. dns_duckdns for DuckDNS) and requires NO inbound
+# firewall port. Alternatively http-01 (vote_backend_acme_method: "http") uses
+# acme.sh's standalone webserver on port 80, which must be publicly reachable.
+# acme.sh runs ROOTFUL on the host. The issued certificate is deployed into
+# vote_backend_tls_dir (the directory the nginx container mounts read-only as
+# /etc/nginx/tls), replacing any self-signed files.
+
+# Install acme.sh (rootful, into /root/.acme.sh). We download the installer
+# explicitly (so a network failure surfaces as a task error) and run it with no
+# flags; with HOME=/root it installs to the default /root/.acme.sh, which equals
+# vote_backend_acme_install_dir. The get.acme.sh bootstrap wrapper does not
+# reliably forward installer flags (--home/--accountemail got mangled), so the
+# account email is registered separately via the acme.sh binary below.
+- name: Download acme.sh installer (rootful)
+  ansible.builtin.get_url:
+    url: https://get.acme.sh
+    dest: "/root/acme.sh-installer"
+    mode: "0700"
+  become: true
+
+- name: Install acme.sh (rootful)
+  ansible.builtin.command:
+    cmd: "/root/acme.sh-installer"
+    creates: "{{ vote_backend_acme_install_dir }}/acme.sh"
+  environment:
+    HOME: "/root"
+  become: true
+
+# Register the ACME account contact email using the acme.sh BINARY (which
+# accepts --accountemail correctly). The get.acme.sh bootstrap wrapper does not
+# reliably forward installer flags, so we set the email here instead. A unique
+# marker file avoids colliding with ca.conf (written by --setca) and keeps the
+# task idempotent.
+- name: Register acme.sh account email (rootful)
+  ansible.builtin.command:
+    cmd: "{{ vote_backend_acme_install_dir }}/acme.sh --register-account --accountemail root@{{ vote_backend_acme_domain }} --home {{ vote_backend_acme_install_dir }}"
+    creates: "{{ vote_backend_acme_install_dir }}/account-registered"
+  become: true
+
+# Point acme.sh at the Let's Encrypt staging or production CA. Staging avoids
+# rate limits while testing; production issues real, browser-trusted certs.
+# No creates: guard so -e vote_backend_acme_ca=staging/production always takes
+# effect on every run (--setca is idempotent).
+# Issue the certificate. The challenge method is selected by
+# vote_backend_acme_method:
+#   - "dns": dns-01 via the DNS provider API hook (e.g. dns_duckdns). Requires
+#     NO inbound firewall port; acme.sh writes the _acme-challenge TXT record
+#     itself using the provider token. Preferred.
+#   - "http": http-01 via acme.sh's standalone webserver on port 80. Requires
+#     port 80 to be publicly reachable (router forward + host firewall open).
+# The CA endpoint is selected inline via --server (staging or production); this
+# avoids the version-dependent --setca/--set-default-ca flag. --force is omitted
+# so existing valid certs are reused. When the cert already exists and is still
+# valid, acme.sh exits non-zero with "Domains not changed"/"Skipping"; the task's
+# failed_when treats that as a successful (idempotent) no-op rather than an error.
+- name: Issue Let's Encrypt certificate via acme.sh (rootful)
+  ansible.builtin.command:
+    cmd: >-
+      {{ vote_backend_acme_install_dir }}/acme.sh --issue
+      {%- if vote_backend_acme_method == 'dns' %}
+      --dns {{ vote_backend_acme_dns_provider }}
+      -d {{ vote_backend_acme_domain }}
+      --home {{ vote_backend_acme_install_dir }}
+      {%- if vote_backend_acme_ca == 'staging' %}
+      --server https://acme-staging-v02.api.letsencrypt.org/directory
+      {%- else %}
+      --server https://acme-v02.api.letsencrypt.org/directory
+      {%- endif %}
+      {%- else %}
+      --standalone --httpport 80
+      -d {{ vote_backend_acme_domain }}
+      --home {{ vote_backend_acme_install_dir }}
+      {%- if vote_backend_acme_ca == 'staging' %}
+      --server https://acme-staging-v02.api.letsencrypt.org/directory
+      {%- else %}
+      --server https://acme-v02.api.letsencrypt.org/directory
+      {%- endif %}
+      {%- endif %}
+    creates: "{{ vote_backend_acme_install_dir }}/{{ vote_backend_acme_domain }}/fullchain.cer"
+  environment:
+    # acme.sh's dns_duckdns hook reads the token from DuckDNS_Token (exact case).
+    DuckDNS_Token: "{{ vote_backend_acme_dns_token if vote_backend_acme_method == 'dns' else '' }}"
+  become: true
+  # acme.sh exits non-zero when the cert already exists and is still valid
+  # ("Domains not changed" / "Skipping") instead of re-issuing. That is the
+  # expected idempotent outcome, not an error, so only fail on a real failure.
+  register: acme_issue
+  failed_when: >-
+    acme_issue.rc != 0 and
+    ('Domains not changed' not in acme_issue.stdout and
+     'Skipping' not in acme_issue.stdout and
+     'Your certificate is' not in acme_issue.stdout)
+
+# Deploy the issued certificate into vote_backend_tls_dir using acme.sh's
+# --install-cert, which copies fullchain.cer -> fullchain.pem and
+# {{ vote_backend_acme_domain }}.key -> privkey.pem. No --reloadcmd is used here:
+# this task runs rootful, and a rootful "systemctl --user" cannot reach the
+# unprivileged user's D-Bus scope (Operation not permitted). The nginx quadlet
+# is restarted separately (non-become) by the deploy-local role's existing
+# restart task once the files are in place and chowned. Running as root writes
+# into the user-owned TLS directory; force the ownership back to the unprivileged
+# user afterwards so the rootless nginx container can read the files.
+- name: Deploy Let's Encrypt certificate into TLS directory (rootful)
+  ansible.builtin.command:
+    cmd: >-
+      {{ vote_backend_acme_install_dir }}/acme.sh --install-cert -d {{ vote_backend_acme_domain }}
+      --home {{ vote_backend_acme_install_dir }}
+      --fullchain-file {{ vote_backend_tls_dir }}/fullchain.pem
+      --key-file {{ vote_backend_tls_dir }}/privkey.pem
+  become: true
+  register: acme_install_cert
+
+# acme.sh runs as root, so the deployed files are owned by root. Chown them back
+# to the unprivileged user so the rootless nginx container (running as the
+# regular user) can read the certificate and key.
+- name: Fix ownership of deployed certificate files (rootful)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ vote_backend_uid }}"
+    group: "{{ vote_backend_uid }}"
+    mode: "0644"
+  loop:
+    - "{{ vote_backend_tls_dir }}/fullchain.pem"
+    - "{{ vote_backend_tls_dir }}/privkey.pem"
+  become: true

@@ -1,0 +1,27 @@
+# nginx reverse proxy for vote-backend (rendered by the deploy-local role).
+# Terminates TLS for {{ vote_backend_nginx_server_name }} and proxies plain
+# HTTP to the backend container by its name on the vote.network.
+# Resolve the name to the host IP (e.g. via /etc/hosts or public DNS) so the
+# name resolves to this host.
+
+server {
+    listen 443 ssl;
+    server_name {{ vote_backend_nginx_server_name }};
+
+    ssl_certificate     /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+
+    # Proxy to the backend container by its name on the vote.network.
+    location / {
+        limit_req   zone=perip burst=20 nodelay;
+        limit_conn  perip_conn 20;
+        limit_req_status 429;
+
+        proxy_pass http://vote-backend:8848;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

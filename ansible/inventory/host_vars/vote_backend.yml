@@ -1,0 +1,19 @@
+---
+# Host-specific variables for remote deployment via SSH
+# This file overrides defaults for the 192.168.178.34 host when targeted by ansible-playbook
+
+# For remote SSH hosts, we should NOT build the image locally on the target.
+# This playbook will build the image on localhost and push it to this host.
+vote_backend_build_on_target: false
+
+# Host-specific configuration for qube
+# Since we're using SSH to deploy to a remote host, we may need different configurations
+# than what's configured for localhost. Adjust as needed.
+vote_backend_postgres_persistent: true
+vote_backend_acme_enabled: true
+vote_backend_acme_method: "dns"
+vote_backend_acme_dns_provider: "dns_duckdns"
+vote_backend_acme_domain: "vote-backend.duckdns.org"
+vote_backend_nginx_server_name: "{{ vote_backend_acme_domain }}"
+vote_backend_tls_dir: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/tls"
+vote_backend_quadlet_dir: "{{ ansible_facts['env']['HOME'] }}/quadlets"
