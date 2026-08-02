@@ -17,3 +17,8 @@ vote_backend_acme_domain: "vote-backend.duckdns.org"
 vote_backend_nginx_server_name: "{{ vote_backend_acme_domain }}"
 vote_backend_tls_dir: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/tls"
 vote_backend_quadlet_dir: "{{ ansible_facts['env']['HOME'] }}/quadlets"
+
+# Enable the rootless port forwarder (pasta) in containers.conf.
+# Required when the backend is deployed behind an nginx reverse proxy
+# so that podman can forward host ports into the rootless network.
+vote_backend_nginx_enabled: true

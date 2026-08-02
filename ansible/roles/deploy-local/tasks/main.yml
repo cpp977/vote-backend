@@ -93,7 +93,9 @@
     content: |
       [network]
       firewall_driver = "none"
+      {% if vote_backend_nginx_enabled | default(false) %}
       rootless_port_forwarder = "pasta"
+      {% endif %}
     mode: "0644"
 
 # --- Persistent deployment: TLS + nginx reverse proxy (HTTPS) ----------------
