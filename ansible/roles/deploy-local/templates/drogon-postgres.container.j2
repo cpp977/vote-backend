@@ -32,7 +32,6 @@ Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
 Volume=%h/.local/share/vote-backend/postgres/18:/var/lib/postgresql/data/18:Z
 {% endif %}
 Network=vote.network
-PublishPort=5432:5432
 
 [Service]
 Restart=on-failure
