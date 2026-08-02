@@ -20,7 +20,7 @@ using namespace vote_backend::utils;
 namespace {
 // Publicly accessible paths – we skip auth for these.
 static const std::unordered_set<std::string> kPublicPaths = {
-    "/login", "/register", "/refresh"};
+    "/login", "/register", "/refresh", "/questions/restSearch"};
 }  // namespace
 
 void JwtAuthFilter::doFilter(const HttpRequestPtr& req,

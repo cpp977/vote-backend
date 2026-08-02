@@ -1132,6 +1132,20 @@ TEST_CASE("RestSearchQuestions without explicit limit defaults to 50") {
   }
 }
 
+TEST_CASE("RestSearchQuestions is accessible without authentication") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+
+  // No bearer token — the request must still succeed because
+  // /questions/restSearch is a public endpoint.
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() >= 1);
+}
+
 // ---------------------------------------------------------------------------
 // POST /questions/{id}/answer  (anonymous, one-answer-per-user enforcement)
 //
