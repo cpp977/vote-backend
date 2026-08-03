@@ -13,9 +13,12 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::submitQuestion, "/questions/submissions",
                 drogon::Post, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getStats, "/questions/{1}/stats",
-                drogon::Get, drogon::Options, "JwtAuthFilter");
+                drogon::Get, drogon::Options);
   ADD_METHOD_TO(QuestionController::getAnswerOptions, "/questions/{1}/answers",
-                drogon::Get, drogon::Options, "JwtAuthFilter");
+                drogon::Get, drogon::Options);
+  ADD_METHOD_TO(QuestionController::getAnswerOptionsWithAuth,
+                "/questions/{1}/answers-with-auth", drogon::Get,
+                drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getQuestionsWithCategories,
                 "/questions/with-categories", drogon::Get, drogon::Options,
                 "JwtAuthFilter");
@@ -53,6 +56,12 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void getAnswerOptions(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId);
+  // Authenticated endpoint: returns answer options for approved questions,
+  // and also allows the owner to see options for their own pending questions.
+  void getAnswerOptionsWithAuth(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+      int questionId);
   void getQuestionsWithCategories(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);

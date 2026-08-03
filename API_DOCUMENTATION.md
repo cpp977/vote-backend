@@ -45,7 +45,10 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **POST** | `/questions/restSearch` | Search/filter questions via a JSON body. Filters: `language` (exact match), `search` (case‑insensitive substring on the question text), `categoryIds` (match any of the given category ids), `age` (question `min_age` >= value). Supports pagination via `offset` (default 0) and `limit` (default 50, max 1000). | No | ```json
 { "language": "string", "search": "string", "categoryIds": [1, 2, 3], "age": 0, "offset": 0, "limit": 50 }
 ``` | *200 OK* – array of question objects (`id`, `text`, `language`, `category_id`, `category_name`). Errors: 400 (invalid JSON body), 500 (DB error). |
-| **GET** | `/categories/lang/{lang}` | Retrieve all categories for a given language code (e.g. `en`, `de`). Returns only categories whose `language` column matches the path parameter. | Bearer access token | – | *200 OK* – array of category objects (`id`, `name`, `language`). Returns an empty array for an unknown language code. |
+| **GET** | `/categories/lang/{lang}` | Retrieve all categories for a given language code (e.g. `en`, `de`). Returns only categories whose `language` column matches the path parameter. | No | – | *200 OK* – array of category objects (`id`, `name`, `language`). Returns an empty array for an unknown language code. |
+| **GET** | `/questions/{id}/stats` | Get aggregated results (vote counts per answer option) for a question. | No | – | *200 OK* – array of answer objects (`answer_id`, `answer_text`, `count`, `percent`). Errors: 404 (question not found), 500 (DB error). |
+| **GET** | `/questions/{id}/answers` | Get the answer options for a question. Only approved questions are visible. | No | – | *200 OK* – array of answer option objects (`id`, `question_id`, `text`). Errors: 404 (question not found), 500 (DB error). |
+| **GET** | `/questions/{id}/answers-with-auth` | Get the answer options for a question. Returns options for approved questions, and also allows the question owner to see options for their own pending submissions. | Bearer access token | – | *200 OK* – array of answer option objects (`id`, `question_id`, `text`). Errors: 401 (unauthorized), 404 (question not found or not visible to you), 500 (DB error). |
 
 ## Authentication Details
 

@@ -12,8 +12,7 @@ class CategoryController : public drogon::HttpController<CategoryController> {
  public:
   METHOD_LIST_BEGIN
   ADD_METHOD_TO(CategoryController::getCategoriesByLanguage,
-                "/categories/lang/{1}", drogon::Get, drogon::Options,
-                "JwtAuthFilter");
+                "/categories/lang/{1}", drogon::Get, drogon::Options);
   METHOD_LIST_END
 
   /// @brief Return all categories for a given language code (e.g. "en").

@@ -63,6 +63,14 @@ TEST_CASE("GetAnswerOptions for non-existent question returns 404") {
   CHECK(resp.status == 404);
 }
 
+TEST_CASE("GetAnswerOptions is accessible without authentication") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/1/answers", "", "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 5);
+}
+
 TEST_CASE("GetQuestionsByLanguage returns only English questions") {
   auto resp = test_helpers::http_request(
       "GET", "127.0.0.1", 8848, "/questions/lang/en", "", "application/json",
@@ -236,10 +244,11 @@ TEST_CASE(
   CHECK(resp_f.json_body[0]["percent"].get<double>() == doctest::Approx(100.0));
 }
 
-TEST_CASE("GetStats requires authentication") {
+TEST_CASE("GetStats is accessible without authentication") {
   auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
                                          "/questions/1/stats");
-  CHECK(resp.status == 401);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
 }
 
 // ---------------------------------------------------------------------------
@@ -1318,6 +1327,14 @@ TEST_CASE("GetCategoriesByLanguage for unknown language returns empty array") {
   CHECK(resp.json_body.empty());
 }
 
+TEST_CASE("GetCategoriesByLanguage is accessible without authentication") {
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/categories/lang/en", "", "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 10);
+}
+
 // ---------------------------------------------------------------------------
 // PATCH /me  (and PUT /me) – update the authenticated user's own profile
 //
@@ -1604,7 +1621,7 @@ TEST_CASE(
   // Owner can fetch the answer options for their pending question.
   auto owner_opts = test_helpers::http_request(
       "GET", "127.0.0.1", 8848,
-      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "/questions/" + std::to_string(new_id) + "/answers-with-auth", "",
       "application/json", user_token);
   CHECK(owner_opts.status == 200);
   CHECK(owner_opts.json_body.is_array());
@@ -1614,7 +1631,7 @@ TEST_CASE(
   // A non-owner must not see them (404 -> pending content stays hidden).
   auto other_opts = test_helpers::http_request(
       "GET", "127.0.0.1", 8848,
-      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "/questions/" + std::to_string(new_id) + "/answers-with-auth", "",
       "application/json", other_token);
   CHECK(other_opts.status == 404);
 }
@@ -1673,13 +1690,13 @@ TEST_CASE(
   CHECK(create.status == 201);
   int new_id = create.json_body["id"].get<int>();
 
-  // Before approval the answer options are not publicly visible.
-  auto public_opts = test_helpers::http_request(
+  // Before approval the owner can still see the answer options.
+  auto owner_opts = test_helpers::http_request(
       "GET", "127.0.0.1", 8848,
-      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "/questions/" + std::to_string(new_id) + "/answers-with-auth", "",
       "application/json", user_token);
-  CHECK(public_opts.status == 200);
-  CHECK(public_opts.json_body.is_array());
+  CHECK(owner_opts.status == 200);
+  CHECK(owner_opts.json_body.is_array());
 
   // Admin approves -> answer options become publicly visible.
   auto approve = test_helpers::http_request(
@@ -1849,16 +1866,15 @@ TEST_CASE("InactiveUser cannot access admin user details (423 status)") {
   CHECK(resp.json_body["error"] == "User account is not active");
 }
 
-TEST_CASE("InactiveUser cannot access categories (423 status)") {
+TEST_CASE("InactiveUser can access categories (public endpoint)") {
   // Login as the inactive user from seed data
   auto inactive_token =
       test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
 
-  // Access a specific user endpoint with admin filter
+  // Categories are public; no auth required.
   auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
                                          "/categories/lang/en", "",
                                          "application/json", inactive_token);
-  CHECK(resp.status == 423);
-  CHECK(resp.json_body.contains("error"));
-  CHECK(resp.json_body["error"] == "User account is not active");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
 }

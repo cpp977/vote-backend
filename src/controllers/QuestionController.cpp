@@ -173,11 +173,71 @@ void QuestionController::getAnswerOptions(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(cb));
 
+  // Only approved questions have visible answer options.
+  *dbClient
+          << "SELECT id, submission_status FROM questions WHERE id = $1::bigint"
+          << static_cast<int64_t>(questionId) >>
+      [dbClient, callbackPtr](const Result& r) {
+        if (r.empty()) {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        if (r[0]["submission_status"].as<std::string>() != "approved") {
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        // Load the answer options.
+        *dbClient << "SELECT id, question_id, text FROM answer_options "
+                     "WHERE question_id = $1::bigint ORDER BY id"
+                  << static_cast<int64_t>(r[0]["id"].as<long long>()) >>
+            [callbackPtr](const Result& opts) {
+              Json::Value arr(Json::arrayValue);
+              for (const auto& row : opts) {
+                Json::Value o;
+                o["id"] = Json::Value(
+                    static_cast<Json::Int64>(row["id"].as<long long>()));
+                o["question_id"] = Json::Value(static_cast<Json::Int64>(
+                    row["question_id"].as<long long>()));
+                o["text"] = row["text"].as<std::string>();
+                arr.append(o);
+              }
+              (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+            } >>
+            [callbackPtr](const DrogonDbException& e) {
+              LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+                                       e.base().what());
+              auto resp = HttpResponse::newHttpResponse();
+              resp->setStatusCode(k500InternalServerError);
+              resp->setBody(e.base().what());
+              (*callbackPtr)(resp);
+            };
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+                                 e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::getAnswerOptionsWithAuth(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
   int64_t user_id = req->attributes()->get<int64_t>("user_id");
 
-  // Resolve the question and its visibility first. Unapproved questions are
-  // only visible to their submitter; everyone else (including non-owner
-  // regular users) gets 404 so pending content never leaks.
+  // Resolve the question and its visibility. Unapproved questions are
+  // only visible to their submitter; everyone else gets 404.
   *dbClient << "SELECT id, submission_status, submitted_by "
                "FROM questions WHERE id = $1::bigint"
             << static_cast<int64_t>(questionId) >>
@@ -215,7 +275,7 @@ void QuestionController::getAnswerOptions(
               (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
             } >>
             [callbackPtr](const DrogonDbException& e) {
-              LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+              LOG_ERROR << fmt::format("getAnswerOptionsWithAuth DB error: {}",
                                        e.base().what());
               auto resp = HttpResponse::newHttpResponse();
               resp->setStatusCode(k500InternalServerError);
@@ -224,7 +284,7 @@ void QuestionController::getAnswerOptions(
             };
       } >>
       [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
+        LOG_ERROR << fmt::format("getAnswerOptionsWithAuth DB error: {}",
                                  e.base().what());
         auto resp = HttpResponse::newHttpResponse();
         resp->setStatusCode(k500InternalServerError);
