@@ -1878,3 +1878,61 @@ TEST_CASE("InactiveUser can access categories (public endpoint)") {
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
 }
+
+// ---------------------------------------------------------------------------
+// POST /users/{id}/delete  (self-service account deletion)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("User cannot delete another user's account (403 Forbidden)") {
+  // Login as Jim (non-admin, id=1) and try to delete Admin (id=2).
+  auto jim_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto resp =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/2/delete",
+                                 "", "application/json", jim_token);
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Delete own account requires authentication (401)") {
+  auto resp =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/1/delete");
+  CHECK(resp.status == 401);
+}
+
+TEST_CASE("Inactive user cannot delete their own account (423 Locked)") {
+  auto inactive_token =
+      test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+  // InactiveUser's id is 3 from the seed data.
+  auto resp =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/3/delete",
+                                 "", "application/json", inactive_token);
+  CHECK(resp.status == 423);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "User account is not active");
+}
+
+TEST_CASE("User can delete their own account (204 No Content)") {
+  // Register and log in as a dedicated test user.
+  auto user_token = test_helpers::authenticate("127.0.0.1", 8848, "deleteuser",
+                                               "deleteuser@example.com",
+                                               "password123", 1990, "m", "US");
+
+  // The new user's id is not known in advance; look it up via /me.
+  auto me_resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/me", "",
+                                            "application/json", user_token);
+  CHECK(me_resp.status == 200);
+  int64_t user_id = me_resp.json_body["id"].get<int64_t>();
+
+  // Delete the account.
+  auto del_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/users/" + std::to_string(user_id) + "/delete", "", "application/json",
+      user_token);
+  CHECK(del_resp.status == 204);
+
+  // The user no longer exists in the database, so /me returns 404.
+  auto post_del_resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/me", "", "application/json", user_token);
+  CHECK(post_del_resp.status == 404);
+}

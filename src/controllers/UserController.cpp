@@ -1,10 +1,17 @@
 /**
  *
  *  UserController.cpp
- *  Implementation of the admin-only user management controller.
+ *  Implementation of the user management controller.
  *
- *  Endpoint: GET /admin/users
- *  Returns: JSON array of user objects containing id and username fields only.
+ *  Admin endpoints:
+ *    GET  /admin/users          – list all users (id, username)
+ *    GET  /admin/users/{1}      – get a specific user by ID
+ *    POST /admin/users/{1}/inactive – set a user inactive
+ *    POST /admin/users/{1}/active   – set a user active
+ *
+ *  User endpoint:
+ *    POST /users/{1}/delete    – delete the authenticated user's own
+ *                                account (JwtAuthFilter-protected).
  */
 
 #include "vote-backend/controllers/UserController.hpp"
@@ -212,6 +219,71 @@ void UserController::set_user_active(
         resp->setStatusCode(k500InternalServerError);
         resp->setBody(e.base().what());
         (cb)(resp);
+      },
+      user_id);
+}
+
+// ---------------------------------------------------------------------------
+// POST /users/{1}/delete
+//
+// Deletes the authenticated user's own account.  The JwtAuthFilter
+// stores the caller's user_id in the request attributes; we verify that
+// it matches the path parameter so that a user can only delete themselves.
+//
+// The database cascade rules handle the dependent rows automatically:
+//   - refresh_tokens  ON DELETE CASCADE  → all tokens are removed
+//   - questions       ON DELETE SET NULL → submitted_by/reviewed_by become NULL
+//   - question_user   has no FK to users → rows are kept (hash is opaque)
+// ---------------------------------------------------------------------------
+void UserController::delete_user(
+    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
+    int64_t user_id) {
+  // Retrieve the caller's identity from the JWT (set by JwtAuthFilter).
+  auto calling_user_id = req->attributes()->get<int64_t>("user_id");
+  if (calling_user_id == 0) {
+    send_error(cb, "Unauthorized", k401Unauthorized);
+    return;
+  }
+
+  // Only the user themselves can delete their own account.
+  if (calling_user_id != user_id) {
+    send_error(cb, "Forbidden: can only delete your own account",
+               k403Forbidden);
+    return;
+  }
+
+  auto dbClient = app().getDbClient();
+
+  const std::string sql = "DELETE FROM users WHERE id = $1 RETURNING id";
+
+  dbClient->execSqlAsync(
+      sql,
+      [cb](const Result& r) {
+        try {
+          if (r.size() == 0) {
+            send_error(cb, "User not found", k404NotFound);
+            return;
+          }
+
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k204NoContent);
+          cb(resp);
+        } catch (const std::exception& e) {
+          LOG_ERROR << fmt::format("UserController::delete_user failed: {}",
+                                   e.what());
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          cb(resp);
+        }
+      },
+      [cb](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("UserController::delete_user DB error: {}",
+                                 e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        cb(resp);
       },
       user_id);
 }

@@ -1,11 +1,11 @@
 /**
  *
  *  UserController.h
- *  Controller for admin-only user management endpoints.
+ *  Controller for user management endpoints.
  *
- *  Provides endpoints to list all users and get a specific user by ID.
- *  Returns user objects with id and username (for listing) or all fields except password_hash (for single user).
- *  Requires the AdminAuthFilter to access.
+ *  Provides endpoints to list all users and get a specific user by ID (admin-only),
+ *  activate/deactivate users (admin-only), and delete the authenticated user's own
+ *  account (JwtAuthFilter-protected, user can only delete themselves).
  */
 
 #pragma once
@@ -30,12 +30,16 @@ class UserController : public drogon::HttpController<UserController> {
     // Admin-only endpoint to set a given user active
     ADD_METHOD_TO(UserController::set_user_active, "/admin/users/{1}/active", drogon::Post,
                   drogon::Options, "AdminAuthFilter");
+    // User endpoint to delete the authenticated user's own account.
+    // Protected by JwtAuthFilter; only the calling user can delete themselves.
+    ADD_METHOD_TO(UserController::delete_user, "/users/{1}/delete", drogon::Post,
+                  drogon::Options, "JwtAuthFilter");
     METHOD_LIST_END
 
     void list_users(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb);
-    
+
     void get_user_by_id(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb,
@@ -47,6 +51,11 @@ class UserController : public drogon::HttpController<UserController> {
         int64_t user_id);
 
     void set_user_active(
+        const HttpRequestPtr& req,
+        std::function<void(const HttpResponsePtr&)>&& cb,
+        int64_t user_id);
+
+    void delete_user(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb,
         int64_t user_id);
