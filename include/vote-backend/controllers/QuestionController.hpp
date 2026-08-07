@@ -48,6 +48,12 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::getAdminAnswerOptions,
                 "/admin/questions/{1}/answers", drogon::Get, drogon::Options,
                 "AdminAuthFilter");
+  ADD_METHOD_TO(QuestionController::deleteQuestion,
+                "/admin/questions/{1}/delete", drogon::Post, drogon::Options,
+                "AdminAuthFilter");
+  ADD_METHOD_TO(QuestionController::changeQuestionText,
+                "/admin/questions/{1}/change", drogon::Patch,
+                drogon::Options, "AdminAuthFilter");
   METHOD_LIST_END
 
   void getStats(const drogon::HttpRequestPtr& req,
@@ -102,6 +108,18 @@ class QuestionController : public drogon::HttpController<QuestionController> {
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
       int questionId);
+  // POST /admin/questions/{1}/delete: permanently remove a question. All
+  // dependent rows (answer options, user answers, anonymous answer tracking)
+  // are removed automatically via ON DELETE CASCADE. Only admins may call this.
+  void deleteQuestion(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                      int questionId);
+  // PATCH /admin/questions/{1}/change: update the text of an existing
+  // question. Only admins may call this. The request body must be a JSON
+  // object with a non-empty "text" field.
+  void changeQuestionText(const drogon::HttpRequestPtr& req,
+                          std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                          int questionId);
 
   // --- Standard REST endpoints
   // GET /questions: list approved questions (public; requires a valid token).

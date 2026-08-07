@@ -1835,6 +1835,362 @@ TEST_CASE("AdminGetAnswerOptions returns 404 for a non-existent question") {
 }
 
 // ---------------------------------------------------------------------------
+// POST /admin/questions/{id}/delete  (admin-only question deletion)
+//
+// The endpoint removes a question together with all of its dependent rows
+// (answer options, user answers, anonymous answer tracking) via ON DELETE
+// CASCADE. It returns the deleted question's id, text and submission_status
+// with HTTP 200, 404 when the question does not exist, and is gated by
+// AdminAuthFilter (401 for missing tokens, 403 for non-admins).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AdminDeleteQuestion removes a pending submission and its options") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Create a pending submission with answer options.
+  nlohmann::json body = {{"text", "Should socks be worn with sandals?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No", "Obviously"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // The question's answer options are visible to the owner before deletion.
+  auto opts_before = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(opts_before.status == 200);
+  CHECK(opts_before.json_body.size() == 3);
+
+  // Admin deletes the question.
+  auto del = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/delete", "",
+      "application/json", admin_token);
+  CHECK(del.status == 200);
+  CHECK(del.json_body["id"] == new_id);
+  CHECK(del.json_body["submission_status"] == "pending");
+  CHECK(del.json_body["message"] == "Question deleted");
+
+  // The question no longer appears in the public question list.
+  auto list = test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions",
+                                         "", "application/json", admin_token);
+  CHECK(list.status == 200);
+  bool still_in_list = false;
+  for (const auto& q : list.json_body) {
+    if (q["id"].get<int>() == new_id) still_in_list = true;
+  }
+  CHECK_FALSE(still_in_list);
+
+  // The question's answer options are gone (cascade delete).
+  auto opts_after = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(opts_after.status == 404);
+}
+
+TEST_CASE(
+    "AdminDeleteQuestion removes an approved submission and its options") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Create a pending submission with answer options.
+  nlohmann::json body = {{"text", "Should robots be allowed to vote?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // Admin approves it so it is a fully "approved" question.
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", "",
+      "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+
+  // The approved question is publicly visible.
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", admin_token);
+  CHECK(get_one.status == 200);
+
+  // Admin deletes the approved question.
+  auto del = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/delete", "",
+      "application/json", admin_token);
+  CHECK(del.status == 200);
+  CHECK(del.json_body["id"] == new_id);
+  CHECK(del.json_body["submission_status"] == "approved");
+  CHECK(del.json_body["message"] == "Question deleted");
+
+  // The question is no longer publicly visible.
+  auto get_after = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", admin_token);
+  CHECK(get_after.status == 404);
+
+  // Its answer options are gone too (cascade delete).
+  auto opts = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(opts.status == 404);
+}
+
+TEST_CASE("AdminDeleteQuestion for non-existent question returns 404") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/questions/999999/delete", "",
+                                         "application/json", admin_token);
+  CHECK(resp.status == 404);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminDeleteQuestion rejects non-admin users with 403") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/questions/1/delete", "",
+                                         "application/json", user_token);
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminDeleteQuestion requires authentication (401)") {
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/admin/questions/1/delete");
+  CHECK(resp.status == 401);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/questions/{id}/change  (admin-only text update)
+//
+// Changes the `text` column of an existing question. The request body must be
+// a JSON object containing a non-empty "text" field. Protected by
+// AdminAuthFilter (401 / 403), returns 404 for unknown questions and 400 for
+// invalid or missing bodies. Answer options and other dependent rows are left
+// untouched.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AdminChangeQuestionText updates text of a pending submission") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Create a pending submission.
+  nlohmann::json body = {{"text", "Original text for change test"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"A", "B"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // Admin changes the question text.
+  nlohmann::json patch = {{"text", "Updated text for change test"}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/change", patch.dump(),
+      "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["id"] == new_id);
+  CHECK(resp.json_body["text"] == "Updated text for change test");
+  CHECK(resp.json_body["submission_status"] == "pending");
+  CHECK(resp.json_body["message"] == "Question text updated");
+
+  // The owner can read the question back with the new text.
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers-with-auth", "",
+      "application/json", user_token);
+  CHECK(get_one.status == 200);
+}
+
+TEST_CASE("AdminChangeQuestionText updates text of an approved question") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Create a pending submission and approve it.
+  nlohmann::json body = {{"text", "Before approval text"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"X", "Y"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", "",
+      "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+
+  // Now change the approved question's text.
+  nlohmann::json patch = {{"text", "After approval text"}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/change", patch.dump(),
+      "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["id"] == new_id);
+  CHECK(resp.json_body["text"] == "After approval text");
+  CHECK(resp.json_body["submission_status"] == "approved");
+
+  // The question is still publicly visible (status unchanged).
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", admin_token);
+  CHECK(get_one.status == 200);
+  CHECK(get_one.json_body["text"] == "After approval text");
+}
+
+TEST_CASE(
+    "AdminChangeQuestionText leaves answer options intact after text change") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Create a pending submission with answer options.
+  nlohmann::json body = {
+      {"text", "Original question text"},
+      {"category_id", 1},
+      {"language", "en"},
+      {"answer_options", {"Option A", "Option B", "Option C"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  // Capture the original answer options.
+  auto opts_before = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(opts_before.status == 200);
+  CHECK(opts_before.json_body.size() == 3);
+
+  // Change the question text.
+  nlohmann::json patch = {{"text", "Changed question text"}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/change", patch.dump(),
+      "application/json", admin_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["text"] == "Changed question text");
+
+  // Answer options should be unchanged.
+  auto opts_after = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", admin_token);
+  CHECK(opts_after.status == 200);
+  CHECK(opts_after.json_body.size() == 3);
+  std::set<std::string> texts;
+  for (const auto& o : opts_after.json_body) {
+    texts.insert(o["text"].get<std::string>());
+  }
+  CHECK(texts.count("Option A") == 1);
+  CHECK(texts.count("Option B") == 1);
+  CHECK(texts.count("Option C") == 1);
+}
+
+TEST_CASE("AdminChangeQuestionText for non-existent question returns 404") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json patch = {{"text", "Does not matter"}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848, "/admin/questions/999999/change",
+      patch.dump(), "application/json", admin_token);
+  CHECK(resp.status == 404);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminChangeQuestionText with missing text field returns 400") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json patch = {{"category_id", 1}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848, "/admin/questions/1/change", patch.dump(),
+      "application/json", admin_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminChangeQuestionText with empty text returns 400") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json patch = {{"text", ""}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848, "/admin/questions/1/change", patch.dump(),
+      "application/json", admin_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminChangeQuestionText with non-JSON body returns 400") {
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848, "/admin/questions/1/change", "not json",
+      "application/json", admin_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminChangeQuestionText rejects non-admin users with 403") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  nlohmann::json patch = {{"text", "Hacked text"}};
+  auto resp = test_helpers::http_request(
+      "PATCH", "127.0.0.1", 8848, "/admin/questions/1/change", patch.dump(),
+      "application/json", user_token);
+  CHECK(resp.status == 403);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("AdminChangeQuestionText requires authentication (401)") {
+  nlohmann::json patch = {{"text", "Should fail"}};
+  auto resp = test_helpers::http_request("PATCH", "127.0.0.1", 8848,
+                                         "/admin/questions/1/change",
+                                         patch.dump(), "application/json");
+  CHECK(resp.status == 401);
+}
+
+// ---------------------------------------------------------------------------
 // Inactive user tests (HTTP 423 for secured endpoints)
 // ---------------------------------------------------------------------------
 

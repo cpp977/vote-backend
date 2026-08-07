@@ -1109,6 +1109,126 @@ void QuestionController::getAdminAnswerOptions(
       };
 }
 
+void QuestionController::deleteQuestion(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int questionId) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Delete the question. Dependent rows in answer_options, user_answers and
+  // question_user are removed automatically via ON DELETE CASCADE foreign-key
+  // rules defined in sql/001_init.sql. A single DELETE ... RETURNING statement
+  // is sufficient: if no row is returned the question did not exist.
+  *dbClient << "DELETE FROM questions WHERE id = $1::bigint "
+               "RETURNING id, text, submission_status"
+            << static_cast<int64_t>(questionId) >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          Json::Value err;
+          err["error"] = "Question not found";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        Json::Value ret;
+        ret["id"] =
+            Json::Value(static_cast<Json::Int64>(r[0]["id"].as<long long>()));
+        if (!r[0]["text"].isNull()) {
+          ret["text"] = r[0]["text"].as<std::string>();
+        }
+        if (!r[0]["submission_status"].isNull()) {
+          ret["submission_status"] =
+              r[0]["submission_status"].as<std::string>();
+        }
+        ret["message"] = "Question deleted";
+        auto resp = HttpResponse::newHttpJsonResponse(ret);
+        resp->setStatusCode(k200OK);
+        (*callbackPtr)(resp);
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("deleteQuestion DB error: {}",
+                                 e.base().what());
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
+void QuestionController::changeQuestionText(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int questionId) {
+  // 1. The request body must be a JSON object with a non-empty "text" field.
+  auto jsonPtr = req->jsonObject();
+  if (!jsonPtr) {
+    Json::Value err;
+    err["error"] = "No json object is found in the request";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  if (!jsonPtr->isMember("text") || !(*jsonPtr)["text"].isString() ||
+      (*jsonPtr)["text"].asString().empty()) {
+    Json::Value err;
+    err["error"] = "Field 'text' (string, non-empty) is required";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  const std::string newText = (*jsonPtr)["text"].asString();
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Update only the text column and return the updated row so the caller can
+  // verify the change. If no row is returned the question did not exist.
+  *dbClient << "UPDATE questions SET text = $1::text "
+               "WHERE id = $2::bigint "
+               "RETURNING id, text, submission_status"
+            << newText << static_cast<int64_t>(questionId) >>
+      [callbackPtr](const Result& r) {
+        if (r.empty()) {
+          Json::Value err;
+          err["error"] = "Question not found";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+        Json::Value ret;
+        ret["id"] =
+            Json::Value(static_cast<Json::Int64>(r[0]["id"].as<long long>()));
+        ret["text"] = r[0]["text"].as<std::string>();
+        if (!r[0]["submission_status"].isNull()) {
+          ret["submission_status"] =
+              r[0]["submission_status"].as<std::string>();
+        }
+        ret["message"] = "Question text updated";
+        auto resp = HttpResponse::newHttpJsonResponse(ret);
+        resp->setStatusCode(k200OK);
+        (*callbackPtr)(resp);
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("changeQuestionText DB error: {}",
+                                 e.base().what());
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
 void QuestionController::getOne(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback, int questionId) {
