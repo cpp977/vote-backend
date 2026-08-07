@@ -13,17 +13,11 @@
 # host bind-mount (when persistent) maps to that same path. Both therefore
 # include "/18".
 #
-# Equivalent to (ephemeral):
-#   podman run --name drogon-postgres -e POSTGRES_PASSWORD=secret \
-#     -e POSTGRES_DB=vote -e PGDATA=/var/lib/postgresql/data/18 \
-#     -v ~/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d \
-#     -p 5432:5432 -d postgres:18
-#
 # Generated systemd unit: drogon-postgres.service
 
 [Container]
 ContainerName=drogon-postgres
-Image=postgres:18
+Image=docker.io/library/postgres:18-trixie
 Environment=POSTGRES_PASSWORD=secret
 Environment=POSTGRES_DB=vote
 Environment=PGDATA=/var/lib/postgresql/data/18

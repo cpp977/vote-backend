@@ -7,7 +7,7 @@
 # ----------------------------------------------------------
 # Stage 1 – Build
 # ----------------------------------------------------------
-FROM docker.io/silkeh/clang:21-trixie AS builder
+FROM docker.io/silkeh/clang:22-trixie AS builder
 
 RUN <<EOF cat > /etc/apt/sources.list.d/debian-backports.sources
 Types: deb deb-src
