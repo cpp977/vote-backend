@@ -10,8 +10,8 @@
  *    POST /admin/users/{1}/active   – set a user active
  *
  *  User endpoint:
- *    POST /users/{1}/delete    – delete the authenticated user's own
- *                                account (JwtAuthFilter-protected).
+ *    DELETE /users/me/delete    – delete the authenticated user's own account
+ *                                 (JwtAuthFilter-protected).
  */
 
 #include "vote-backend/controllers/UserController.hpp"
@@ -224,11 +224,13 @@ void UserController::set_user_active(
 }
 
 // ---------------------------------------------------------------------------
-// POST /users/{1}/delete
+// DELETE /users/me/delete
 //
-// Deletes the authenticated user's own account.  The JwtAuthFilter
-// stores the caller's user_id in the request attributes; we verify that
-// it matches the path parameter so that a user can only delete themselves.
+// Deletes the authenticated user's own account. The JwtAuthFilter stores the
+// caller's user_id in the request attributes.
+//
+// The endpoint path (/users/me/delete) ensures the user can only delete their
+// own account—the user ID comes from the JWT token, not the request path.
 //
 // The database cascade rules handle the dependent rows automatically:
 //   - refresh_tokens  ON DELETE CASCADE  → all tokens are removed
@@ -236,19 +238,11 @@ void UserController::set_user_active(
 //   - question_user   has no FK to users → rows are kept (hash is opaque)
 // ---------------------------------------------------------------------------
 void UserController::delete_user(
-    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
-    int64_t user_id) {
+    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb) {
   // Retrieve the caller's identity from the JWT (set by JwtAuthFilter).
-  auto calling_user_id = req->attributes()->get<int64_t>("user_id");
-  if (calling_user_id == 0) {
+  auto user_id = req->attributes()->get<int64_t>("user_id");
+  if (user_id == 0) {
     send_error(cb, "Unauthorized", k401Unauthorized);
-    return;
-  }
-
-  // Only the user themselves can delete their own account.
-  if (calling_user_id != user_id) {
-    send_error(cb, "Forbidden: can only delete your own account",
-               k403Forbidden);
     return;
   }
 
