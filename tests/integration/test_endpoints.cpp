@@ -2280,3 +2280,183 @@ TEST_CASE("User can delete their own account (204 No Content)") {
       "GET", "127.0.0.1", 8848, "/me", "", "application/json", user_token);
   CHECK(post_del_resp.status == 404);
 }
+
+// ---------------------------------------------------------------------------
+// POST /user/password/forgot  (password reset request)
+// ---------------------------------------------------------------------------
+// The endpoint always returns the same generic success message regardless of
+// whether the email exists or was rate-limited, to prevent user enumeration.
+
+TEST_CASE("ForgotPassword returns generic response for existing email") {
+  // Jim's email from seed data (sql/004_test_data.sql).
+  nlohmann::json body = {{"email", "jim@example.com"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/forgot", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.contains("message"));
+  CHECK(resp.json_body["message"] ==
+        "If an account with that email exists, a password reset link has been "
+        "sent.");
+}
+
+TEST_CASE(
+    "ForgotPassword returns same generic response for non-existent email") {
+  // A completely made-up email that does not belong to any user.
+  nlohmann::json body = {{"email", "nobody@example.com"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/forgot", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 200);
+  // The message must be identical to the one returned for existing emails.
+  CHECK(resp.json_body.contains("message"));
+  CHECK(resp.json_body["message"] ==
+        "If an account with that email exists, a password reset link has been "
+        "sent.");
+}
+
+TEST_CASE("ForgotPassword returns 400 for missing email") {
+  nlohmann::json body = {};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/forgot", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+// ---------------------------------------------------------------------------
+// POST /user/password/reset  (password reset consumption)
+//
+// Seed-data tokens (SHA-256 hashes stored in sql/004_test_data.sql):
+//   "test-reset-token"    -> valid, unused, expires 1h in the future
+//   "expired-reset-token" -> expired
+//   "used-reset-token"    -> already used
+//
+// IMPORTANT: These tests change Jim's password. They run at the very end of
+// the file so that earlier tests which log in as Jim with "12345678" are
+// unaffected. After the valid-reset test runs, Jim's password is changed to
+// "newpassword123".
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "ResetPassword with valid token changes password, invalidates refresh "
+    "tokens") {
+  // 1. Login as Jim with the original password to obtain a refresh token.
+  auto login_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/login",
+      nlohmann::json{{"username", "Jim"}, {"password", "12345678"}}.dump());
+  REQUIRE(login_resp.status == 200);
+  CHECK(login_resp.json_body.contains("refresh_token"));
+  std::string old_refresh_token =
+      login_resp.json_body["refresh_token"].get<std::string>();
+
+  // 2. Reset the password using the pre-seeded valid token.
+  nlohmann::json reset_body = {{"token", "test-reset-token"},
+                               {"password", "newpassword123"}};
+  auto reset_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/user/password/reset", reset_body.dump(),
+      "application/json");
+  CHECK(reset_resp.status == 200);
+  CHECK(reset_resp.json_body["message"] == "Password reset successfully");
+
+  // 3. Login with the NEW password must now succeed and yield a fresh token
+  //    pair.
+  auto login_new = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/login",
+      nlohmann::json{{"username", "Jim"}, {"password", "newpassword123"}}
+          .dump());
+  CHECK(login_new.status == 200);
+  CHECK(login_new.json_body.contains("access_token"));
+  CHECK(login_new.json_body.contains("refresh_token"));
+
+  // 4. Login with the OLD password must fail.
+  auto login_old = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/login",
+      nlohmann::json{{"username", "Jim"}, {"password", "12345678"}}.dump());
+  CHECK(login_old.status == 401);
+  CHECK(login_old.json_body.contains("error"));
+
+  // 5. The old refresh token must be invalidated — /refresh returns 401.
+  nlohmann::json refresh_body = {{"refresh_token", old_refresh_token}};
+  auto refresh_resp =
+      test_helpers::http_request("POST", "127.0.0.1", 8848, "/refresh",
+                                 refresh_body.dump(), "application/json");
+  CHECK(refresh_resp.status == 401);
+  CHECK(refresh_resp.json_body.contains("error"));
+
+  // 6. The consumed token must not be reusable — a second reset with the
+  //    same token returns 400 "Invalid or expired token".
+  nlohmann::json reuse_body = {{"token", "test-reset-token"},
+                               {"password", "anotherpassword123"}};
+  auto reuse_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/user/password/reset", reuse_body.dump(),
+      "application/json");
+  CHECK(reuse_resp.status == 400);
+  CHECK(reuse_resp.json_body["error"] == "Invalid or expired token");
+}
+
+TEST_CASE("ResetPassword with used token returns 400") {
+  // The "used-reset-token" is pre-seeded with used=TRUE for Jim.
+  nlohmann::json body = {{"token", "used-reset-token"},
+                         {"password", "newpassword456"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "Invalid or expired token");
+}
+
+TEST_CASE("ResetPassword with expired token returns 400") {
+  // The "expired-reset-token" is pre-seeded with an expiry in the past.
+  nlohmann::json body = {{"token", "expired-reset-token"},
+                         {"password", "newpassword456"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "Invalid or expired token");
+}
+
+TEST_CASE("ResetPassword with invalid token returns 400") {
+  // A random string that does not match any stored token hash.
+  nlohmann::json body = {{"token", "this-is-not-a-valid-token"},
+                         {"password", "newpassword456"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "Invalid or expired token");
+}
+
+TEST_CASE("ResetPassword with short password returns 400") {
+  // Password shorter than 8 characters should be rejected before token
+  // lookup, so the token is not consumed.
+  nlohmann::json body = {{"token", "test-reset-token"}, {"password", "short"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+  CHECK(resp.json_body["error"] == "password must be at least 8 characters");
+}
+
+TEST_CASE("ResetPassword with missing token returns 400") {
+  nlohmann::json body = {{"password", "validpassword123"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("ResetPassword with missing password returns 400") {
+  nlohmann::json body = {{"token", "test-reset-token"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/user/password/reset", body.dump(),
+                                         "application/json");
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}

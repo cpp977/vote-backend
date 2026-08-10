@@ -92,3 +92,28 @@ VALUES (3, 12, '{"gender": "m"}');
 -- ---------------------------------------------------------------------------
 UPDATE questions SET min_age = 18 WHERE id IN (1, 3, 5);
 UPDATE questions SET min_age = 21 WHERE id IN (7, 9);
+
+-- ---------------------------------------------------------------------------
+-- Password reset tokens for integration tests.
+--
+-- SHA-256 hashes of well-known token strings:
+--   "test-reset-token"    -> 34d5d7ef743781a981a2efa15be22a860a4a792fd27595a7d70b72e697d88372
+--   "expired-reset-token" -> 5bb79ac95be343e8bb144fc1d2d97ca3703a3ef41f5a91f28c301ec62401e9f4
+--   "used-reset-token"    -> 8205601e8152da142931880206bcb4e93ed22ee960be08ea3f19adf76fcb47e1
+--
+-- Jim (id=1) has three tokens:
+--   1. A valid, unused token expiring 1 hour in the future (test-reset-token).
+--   2. An expired token (expired-reset-token) -- used to test the expiry check.
+--   3. A used token (used-reset-token) -- used to test the "already used" check.
+-- ---------------------------------------------------------------------------
+INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
+VALUES (1, '34d5d7ef743781a981a2efa15be22a860a4a792fd27595a7d70b72e697d88372',
+        NOW() + INTERVAL '1 hour', FALSE, 0);
+
+INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
+VALUES (1, '5bb79ac95be343e8bb144fc1d2d97ca3703a3ef41f5a91f28c301ec62401e9f4',
+        NOW() - INTERVAL '1 hour', FALSE, 0);
+
+INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
+VALUES (1, '8205601e8152da142931880206bcb4e93ed22ee960be08ea3f19adf76fcb47e1',
+        NOW() + INTERVAL '1 hour', TRUE, 0);

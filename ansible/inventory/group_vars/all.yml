@@ -81,8 +81,22 @@ vote_backend_acme_dns_provider: "dns_duckdns"
 # The deploy.yml playbook asserts the token is defined when method is "dns".
 # At issuance acme.sh's dns_duckdns hook receives it as the DuckDNS_Token env var.
 vote_backend_acme_dns_token: ""
-# Rootful install location for acme.sh (run as root on the host).
+# Rootless install location for acme.sh (run as root on the host).
 vote_backend_acme_install_dir: "/root/.acme.sh"
 # Staging vs production Let's Encrypt endpoint. Use "staging" while testing to
 # avoid rate limits; switch to "production" for real certificates.
 vote_backend_acme_ca: "production"
+
+# --- Password reset configuration -----------------------------------------
+# Resend email API settings (https://resend.com/docs).
+# When vote_backend_resend_api_key is empty the backend still generates tokens
+# but logs a warning instead of sending the email; this is useful for local
+# development without a real Resend account.
+vote_backend_resend_api_url: "https://api.resend.com"
+vote_backend_resend_api_key: ""
+vote_backend_resend_from_email: "onboarding@resend.dev"
+vote_backend_app_reset_url: "https://vote-backend.local/reset-password"
+vote_backend_password_reset_token_expiry_hours: 1
+vote_backend_password_reset_max_attempts: 5
+vote_backend_password_reset_rate_limit_window_minutes: 15
+vote_backend_password_reset_rate_limit_max_requests: 3

@@ -36,6 +36,14 @@
   "jwt_secret": "change-me-to-a-strong-random-secret-key-min-32-chars",
   "jwt_access_token_expiry_minutes": 15,
   "jwt_refresh_token_expiry_days": 7,
+  "resend_api_url": "https://api.resend.com",
+  "resend_api_key": "",
+  "resend_from_email": "onboarding@resend.dev",
+  "app_reset_url": "https://vote-backend.local/reset-password",
+  "password_reset_token_expiry_hours": 1,
+  "password_reset_max_attempts": 5,
+  "password_reset_rate_limit_window_minutes": 15,
+  "password_reset_rate_limit_max_requests": 3,
   "plugins": [
     {
       "name": "drogon::plugin::AccessLogger",
