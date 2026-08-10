@@ -238,7 +238,8 @@ void UserController::set_user_active(
 //   - question_user   has no FK to users → rows are kept (hash is opaque)
 // ---------------------------------------------------------------------------
 void UserController::delete_user(
-    const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb) {
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
   // Retrieve the caller's identity from the JWT (set by JwtAuthFilter).
   auto user_id = req->attributes()->get<int64_t>("user_id");
   if (user_id == 0) {

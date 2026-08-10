@@ -2240,8 +2240,8 @@ TEST_CASE("InactiveUser can access categories (public endpoint)") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("Delete own account requires authentication (401)") {
-  auto resp =
-      test_helpers::http_request("DELETE", "127.0.0.1", 8848, "/users/me/delete");
+  auto resp = test_helpers::http_request("DELETE", "127.0.0.1", 8848,
+                                         "/users/me/delete");
   CHECK(resp.status == 401);
 }
 
@@ -2249,9 +2249,9 @@ TEST_CASE("Inactive user cannot delete their own account (423 Locked)") {
   auto inactive_token =
       test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
   // InactiveUser's id is 3 from the seed data.
-  auto resp =
-      test_helpers::http_request("DELETE", "127.0.0.1", 8848, "/users/me/delete",
-                                 "", "application/json", inactive_token);
+  auto resp = test_helpers::http_request("DELETE", "127.0.0.1", 8848,
+                                         "/users/me/delete", "",
+                                         "application/json", inactive_token);
   CHECK(resp.status == 423);
   CHECK(resp.json_body.contains("error"));
   CHECK(resp.json_body["error"] == "User account is not active");
@@ -2270,10 +2270,9 @@ TEST_CASE("User can delete their own account (204 No Content)") {
   int64_t user_id = me_resp.json_body["id"].get<int64_t>();
 
   // Delete the account.
-  auto del_resp = test_helpers::http_request(
-      "DELETE", "127.0.0.1", 8848,
-      "/users/me/delete", "", "application/json",
-      user_token);
+  auto del_resp = test_helpers::http_request("DELETE", "127.0.0.1", 8848,
+                                             "/users/me/delete", "",
+                                             "application/json", user_token);
   CHECK(del_resp.status == 204);
 
   // The user no longer exists in the database, so /me returns 404.
