@@ -2236,23 +2236,12 @@ TEST_CASE("InactiveUser can access categories (public endpoint)") {
 }
 
 // ---------------------------------------------------------------------------
-// POST /users/{id}/delete  (self-service account deletion)
+// DELETE /users/me/delete  (self-service account deletion)
 // ---------------------------------------------------------------------------
-
-TEST_CASE("User cannot delete another user's account (403 Forbidden)") {
-  // Login as Jim (non-admin, id=1) and try to delete Admin (id=2).
-  auto jim_token =
-      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
-  auto resp =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/2/delete",
-                                 "", "application/json", jim_token);
-  CHECK(resp.status == 403);
-  CHECK(resp.json_body.contains("error"));
-}
 
 TEST_CASE("Delete own account requires authentication (401)") {
   auto resp =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/1/delete");
+      test_helpers::http_request("DELETE", "127.0.0.1", 8848, "/users/me/delete");
   CHECK(resp.status == 401);
 }
 
@@ -2261,7 +2250,7 @@ TEST_CASE("Inactive user cannot delete their own account (423 Locked)") {
       test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
   // InactiveUser's id is 3 from the seed data.
   auto resp =
-      test_helpers::http_request("POST", "127.0.0.1", 8848, "/users/3/delete",
+      test_helpers::http_request("DELETE", "127.0.0.1", 8848, "/users/me/delete",
                                  "", "application/json", inactive_token);
   CHECK(resp.status == 423);
   CHECK(resp.json_body.contains("error"));
@@ -2282,8 +2271,8 @@ TEST_CASE("User can delete their own account (204 No Content)") {
 
   // Delete the account.
   auto del_resp = test_helpers::http_request(
-      "POST", "127.0.0.1", 8848,
-      "/users/" + std::to_string(user_id) + "/delete", "", "application/json",
+      "DELETE", "127.0.0.1", 8848,
+      "/users/me/delete", "", "application/json",
       user_token);
   CHECK(del_resp.status == 204);
 

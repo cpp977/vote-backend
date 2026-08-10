@@ -12,6 +12,7 @@
 
 #include <drogon/HttpController.h>
 #include <drogon/HttpRequest.h>
+#include <drogon/HttpTypes.h>
 
 using namespace drogon;
 
@@ -32,7 +33,7 @@ class UserController : public drogon::HttpController<UserController> {
                   drogon::Options, "AdminAuthFilter");
     // User endpoint to delete the authenticated user's own account.
     // Protected by JwtAuthFilter; only the calling user can delete themselves.
-    ADD_METHOD_TO(UserController::delete_user, "/users/{1}/delete", drogon::Post,
+    ADD_METHOD_TO(UserController::delete_user, "/users/me/delete", drogon::Delete,
                   drogon::Options, "JwtAuthFilter");
     METHOD_LIST_END
 
@@ -57,6 +58,5 @@ class UserController : public drogon::HttpController<UserController> {
 
     void delete_user(
         const HttpRequestPtr& req,
-        std::function<void(const HttpResponsePtr&)>&& cb,
-        int64_t user_id);
+        std::function<void(const HttpResponsePtr&)>&& cb);
 };
