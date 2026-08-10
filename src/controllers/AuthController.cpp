@@ -1131,128 +1131,107 @@ void AuthController::reset_password(
   // Hash the incoming token with SHA-256 before looking it up.
   std::string token_hash = sha256_hex(token);
 
-  db->execSqlAsync(
-      "SELECT id, user_id, used, attempt_count, "
-      "(expires_at > NOW()) AS not_expired "
-      "FROM password_resets WHERE token_hash = $1",
-      [cb, db, cfg, password, token_hash](const drogon::orm::Result& r) {
-        if (r.size() == 0) {
-          send_error(cb, "Invalid or expired token", k400BadRequest);
-          return;
-        }
+  // Claim the token and run the reset inside one transaction. The claim
+  // itself is the atomic UPDATE below: it only affects — and thus returns —
+  // a row if the token is currently unused, unexpired, and under the
+  // attempt budget. Concurrent requests racing on the same token can no
+  // longer both pass a check-then-act window; at most one of them will see
+  // a row back from this statement.
+  db->newTransactionAsync([cb, db, cfg, password, token_hash](
+                              const std::shared_ptr<drogon::orm::Transaction>&
+                                  txn) {
+    if (!txn) {
+      send_error(cb, "Failed to create transaction", k500InternalServerError);
+      return;
+    }
 
-        const auto& row = r[0];
-        int64_t reset_id = row["id"].as<int64_t>();
-        int64_t user_id = row["user_id"].as<int64_t>();
-        bool used = row["used"].as<bool>();
-        int attempt_count = row["attempt_count"].as<int>();
-        bool not_expired = row["not_expired"].as<bool>();
+    txn->execSqlAsync(
+        "UPDATE password_resets SET used = TRUE "
+        "WHERE token_hash = $1::text AND used = FALSE "
+        "AND expires_at > NOW() AND attempt_count < $2::int "
+        "RETURNING id, user_id",
+        [txn, cb, db, cfg, password, token_hash](const drogon::orm::Result& r) {
+          if (r.size() == 0) {
+            // Nothing claimed: token missing, expired, already used,
+            // or attempts exhausted. Roll back (no-op, nothing was
+            // written) and record the attempt for bookkeeping outside
+            // the dead transaction.
+            txn->rollback();
+            db->execSqlAsync(
+                "UPDATE password_resets "
+                "SET attempt_count = attempt_count + 1 "
+                "WHERE token_hash = $1::text",
+                [](const drogon::orm::Result&) {},
+                [](const drogon::orm::DrogonDbException& e) {
+                  LOG_ERROR << "Failed to record reset attempt: "
+                            << e.base().what();
+                },
+                token_hash);
+            send_error(cb, "Invalid or expired token", k400BadRequest);
+            return;
+          }
 
-        if (used || !not_expired || attempt_count >= cfg.max_attempts) {
-          // Token is invalid — increment attempt counter and kill if needed.
-          db->execSqlAsync(
-              "UPDATE password_resets SET attempt_count = attempt_count + 1, "
-              "used = CASE WHEN (attempt_count + 1) >= $2::int THEN TRUE "
-              "ELSE used END WHERE id = $1::bigint",
-              [cb](const drogon::orm::Result&) {
-                send_error(cb, "Invalid or expired token", k400BadRequest);
+          int64_t user_id = r[0]["user_id"].as<int64_t>();
+
+          // Token successfully claimed — hash the new password.
+          std::string pw_hash;
+          try {
+            pw_hash = hash_password(password);
+          } catch (const std::exception& e) {
+            LOG_ERROR << "Password hashing failed: " << e.what();
+            txn->rollback();
+            send_error(cb, "Internal server error", k500InternalServerError);
+            return;
+          }
+
+          txn->setCommitCallback([cb](bool committed) {
+            if (committed) {
+              Json::Value resp;
+              resp["message"] = "Password reset successfully";
+              cb(HttpResponse::newHttpJsonResponse(resp));
+            } else {
+              send_error(cb, "Password reset failed", k500InternalServerError);
+            }
+          });
+
+          // 1. Update the user's password hash.
+          txn->execSqlAsync(
+              "UPDATE users SET password_hash = $1::text, "
+              "password_changed_at = NOW() WHERE id = $2::bigint",
+              [txn, cb, user_id](const drogon::orm::Result&) {
+                // 2. Invalidate all refresh tokens for this user.
+                txn->execSqlAsync(
+                    "UPDATE refresh_tokens SET revoked = TRUE "
+                    "WHERE user_id = $1::bigint",
+                    [txn](const drogon::orm::Result&) {
+                      // Both writes succeeded; the transaction
+                      // auto-commits when this lambda returns and
+                      // the SqlCmd holding the txn shared_ptr is
+                      // released.
+                    },
+                    [txn, cb](const drogon::orm::DrogonDbException& e) {
+                      LOG_ERROR << "Failed to invalidate refresh "
+                                   "tokens: "
+                                << e.base().what();
+                      txn->rollback();
+                      send_error(cb, "Internal server error",
+                                 k500InternalServerError);
+                    },
+                    user_id);
               },
-              [cb](const drogon::orm::DrogonDbException&) {
-                send_error(cb, "Invalid or expired token", k400BadRequest);
-              },
-              reset_id, cfg.max_attempts);
-          return;
-        }
-
-        // Valid token — hash the new password with Argon2id.
-        std::string pw_hash;
-        try {
-          pw_hash = hash_password(password);
-        } catch (const std::exception& e) {
-          send_error(cb, std::string("Internal error: ") + e.what(),
-                     k500InternalServerError);
-          return;
-        }
-
-        // Perform all three writes atomically inside a transaction.
-        db->newTransactionAsync(
-            [cb, pw_hash, user_id,
-             reset_id](const std::shared_ptr<drogon::orm::Transaction>& txn) {
-              if (!txn) {
-                send_error(cb, "Failed to create transaction",
+              [txn, cb](const drogon::orm::DrogonDbException& e) {
+                LOG_ERROR << "Failed to update password: " << e.base().what();
+                txn->rollback();
+                send_error(cb, "Internal server error",
                            k500InternalServerError);
-                return;
-              }
-
-              txn->setCommitCallback([cb](bool committed) {
-                if (committed) {
-                  Json::Value resp;
-                  resp["message"] = "Password reset successfully";
-                  cb(HttpResponse::newHttpJsonResponse(resp));
-                } else {
-                  send_error(cb, "Password reset failed",
-                             k500InternalServerError);
-                }
-              });
-
-              // 1. Update the user's password hash.
-              txn->execSqlAsync(
-                  "UPDATE users SET password_hash = $1::text, "
-                  "password_changed_at = NOW() WHERE id = $2::bigint",
-                  [txn, cb, reset_id, user_id](const drogon::orm::Result&) {
-                    // 2. Mark the reset token as used.
-                    txn->execSqlAsync(
-                        "UPDATE password_resets SET used = TRUE "
-                        "WHERE id = $1::bigint",
-                        [txn, cb, user_id](const drogon::orm::Result&) {
-                          // 3. Invalidate all refresh tokens for this user.
-                          txn->execSqlAsync(
-                              "UPDATE refresh_tokens SET revoked = TRUE "
-                              "WHERE user_id = $1::bigint",
-                              [txn](const drogon::orm::Result&) {
-                                // All three writes succeeded; the transaction
-                                // auto-commits when this lambda returns and
-                                // the SqlCmd holding the txn shared_ptr is
-                                // released.
-                              },
-                              [txn,
-                               cb](const drogon::orm::DrogonDbException& e) {
-                                LOG_ERROR << "Failed to invalidate refresh "
-                                             "tokens: "
-                                          << e.base().what();
-                                txn->rollback();
-                                send_error(cb,
-                                           std::string("Database error: ") +
-                                               e.base().what(),
-                                           k500InternalServerError);
-                              },
-                              user_id);
-                        },
-                        [txn, cb](const drogon::orm::DrogonDbException& e) {
-                          LOG_ERROR << "Failed to mark token as used: "
-                                    << e.base().what();
-                          txn->rollback();
-                          send_error(
-                              cb,
-                              std::string("Database error: ") + e.base().what(),
-                              k500InternalServerError);
-                        },
-                        reset_id);
-                  },
-                  [txn, cb](const drogon::orm::DrogonDbException& e) {
-                    LOG_ERROR << "Failed to update password: "
-                              << e.base().what();
-                    txn->rollback();
-                    send_error(
-                        cb, std::string("Database error: ") + e.base().what(),
-                        k500InternalServerError);
-                  },
-                  pw_hash, user_id);
-            });
-      },
-      [cb](const drogon::orm::DrogonDbException& e) {
-        send_error(cb, std::string("Database error: ") + e.base().what(),
-                   k500InternalServerError);
-      },
-      token_hash);
+              },
+              pw_hash, user_id);
+        },
+        [txn, cb](const drogon::orm::DrogonDbException& e) {
+          LOG_ERROR << "Failed to claim reset token: " << e.base().what();
+          txn->rollback();
+          send_error(cb, "Internal server error", k500InternalServerError);
+        },
+        token_hash, cfg.max_attempts);
+  });
 }
