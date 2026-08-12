@@ -22,3 +22,7 @@ vote_backend_quadlet_dir: "{{ ansible_facts['env']['HOME'] }}/quadlets"
 # Required when the backend is deployed behind an nginx reverse proxy
 # so that podman can forward host ports into the rootless network.
 vote_backend_nginx_enabled: true
+
+# --- Service boot configuration ------------------------------------------
+# For production deployments on this host, we want services to start automatically at boot.
+vote_backend_start_services_at_boot: true

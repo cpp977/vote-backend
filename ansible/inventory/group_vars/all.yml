@@ -100,3 +100,9 @@ vote_backend_password_reset_token_expiry_hours: 1
 vote_backend_password_reset_max_attempts: 5
 vote_backend_password_reset_rate_limit_window_minutes: 15
 vote_backend_password_reset_rate_limit_max_requests: 3
+
+# --- Service boot configuration ------------------------------------------
+# When true, quadlet services will be started automatically at boot.
+# For local development environments, set to false to prevent them from
+# starting automatically. For production deployments, set to true.
+vote_backend_start_services_at_boot: false

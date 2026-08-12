@@ -30,3 +30,4 @@ After=vote-backend@%i.service
 Requires=vote-backend@%i.service
 
 [Install]
+{% if vote_backend_start_services_at_boot %}WantedBy=default.target{% endif %}
