@@ -55,6 +55,10 @@ jobs:
         with:
           vcpkgJsonGlob: 'vcpkg.json'
 
+      - name: Check if network-online.target is running
+        run: systemctl status network-online.target || sudo systemctl start network-online.target
+        shell: bash
+
       # Note: if the preset misses the "configuration", it is possible to explicitly select the
       # configuration with the additional `--config` flag, e.g.:
       #   buildPreset: 'ninja-vcpkg'
