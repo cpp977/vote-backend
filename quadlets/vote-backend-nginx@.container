@@ -14,7 +14,7 @@
 
 [Container]
 ContainerName=vote-backend-nginx
-Image=docker.io/library/nginx:1.30
+Image=docker.io/library/nginx:1.31
 AutoUpdate=registry
 Network=vote.network
 PublishPort=8443:443
