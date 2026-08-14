@@ -17,7 +17,7 @@
 # testing (the database is reset on every (re)deploy).
 
 - name: Deploy vote-backend locally (Podman, persistent database)
-  hosts: localhost
+  hosts: dev
   gather_facts: true
 
   vars:

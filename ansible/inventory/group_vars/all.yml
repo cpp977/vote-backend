@@ -51,6 +51,9 @@ vote_backend_nginx_conf: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backen
 # so the TLS certificate (Let's Encrypt) matches the requested host.
 vote_backend_nginx_server_name: "vote-backend.local"
 
+# Start nginx container as a reverse proxy
+vote_backend_nginx_enabled: true
+
 # --- Let's Encrypt certificate issuance via acme.sh --------------------------
 # When vote_backend_acme_enabled is true the deploy-local role skips the
 # self-signed certificate generation and instead uses acme.sh to obtain a
@@ -93,13 +96,15 @@ vote_backend_acme_ca: "production"
 # but logs a warning instead of sending the email; this is useful for local
 # development without a real Resend account.
 vote_backend_resend_api_url: "https://api.resend.com"
-vote_backend_resend_api_key: ""
-vote_backend_resend_from_email: "onboarding@resend.dev"
-vote_backend_app_reset_url: "https://vote-backend.local/reset-password"
+vote_backend_resend_api_key: "{{ vault_resend_api_key }}"
+vote_backend_resend_from_email: "no-reply@mail.vote4it.org"
+vote_backend_app_reset_url: ""
 vote_backend_password_reset_token_expiry_hours: 1
 vote_backend_password_reset_max_attempts: 5
 vote_backend_password_reset_rate_limit_window_minutes: 15
 vote_backend_password_reset_rate_limit_max_requests: 3
+
+vote_backend_allowed_origin: ""
 
 # --- Service boot configuration ------------------------------------------
 # When true, quadlet services will be started automatically at boot.

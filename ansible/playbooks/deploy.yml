@@ -28,7 +28,7 @@
 # localhost only.
 
 - name: Deploy vote-backend (Podman, persistent database, Let's Encrypt TLS)
-  hosts: dev
+  hosts: prod
   gather_facts: true
 
   # # If host is an SSH remote (not localhost) we need to:

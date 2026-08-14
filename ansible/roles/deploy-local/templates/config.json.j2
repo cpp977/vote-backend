@@ -44,6 +44,7 @@
   "password_reset_max_attempts": {{ vote_backend_password_reset_max_attempts | default(5) }},
   "password_reset_rate_limit_window_minutes": {{ vote_backend_password_reset_rate_limit_window_minutes | default(15) }},
   "password_reset_rate_limit_max_requests": {{ vote_backend_password_reset_rate_limit_max_requests | default(3) }},
+  "allowed_origin": "{{ vote_backend_allowed_origin }}",
   "plugins": [
     {
       "name": "drogon::plugin::AccessLogger",

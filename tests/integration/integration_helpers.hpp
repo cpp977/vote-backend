@@ -1,6 +1,7 @@
 #pragma once
 
 #include <doctest/doctest.h>
+#include <fmt/format.h>
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
@@ -37,10 +38,13 @@ inline void run_ansible_playbook(const std::string& playbook,
     env_setup = "ANSIBLE_ROLES_PATH=" + roles_path + " ";
   }
   // Use the project's inventory file which defines the 'dev' group.
-  std::string inventory = " -i " +
-                          std::string(get_env("VOTE_BACKEND_SRC", ".")) +
-                          "/ansible/inventory/hosts.yml";
-  std::string cmd = env_setup + "ansible-playbook " + playbook + inventory;
+  std::string inventory =
+      fmt::format(" -i {}/ansible/inventory/hosts.yml",
+                  std::string(get_env("VOTE_BACKEND_SRC", ".")));
+  std::string ansible_opts =
+      fmt::format(" --vault-id dev@~/.ansible_vault_pass_prod");
+  std::string cmd = fmt::format("{} ansible-playbook {} {} {}", env_setup,
+                                playbook, inventory, ansible_opts);
   int rc = std::system(cmd.c_str());
   if (rc != 0) {
     throw std::runtime_error("Ansible playbook failed: " + playbook);

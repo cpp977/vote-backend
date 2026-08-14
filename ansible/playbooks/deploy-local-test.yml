@@ -18,7 +18,7 @@
 # Use deploy-local.yml for a persistent, production-like deployment.
 
 - name: Deploy vote-backend locally for integration testing (Podman, ephemeral database)
-  hosts: localhost
+  hosts: dev
   gather_facts: true
 
   vars:

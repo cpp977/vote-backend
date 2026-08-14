@@ -12,6 +12,7 @@ target_link_libraries(integration_test
         Boost::system
         nlohmann_json::nlohmann_json
         doctest::doctest
+        fmt::fmt-header-only
 )
 
 set_property(TARGET integration_test PROPERTY CXX_STANDARD 23)
