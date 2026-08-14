@@ -23,12 +23,15 @@
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <fmt/core.h>
+#include <fmt/format.h>
 #include <json/json.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <trantor/utils/Logger.h>
 
 #include <cstdlib>
 #include <fstream>
+#include <string>
 
 #include "vote-backend/models/Users.hpp"
 #include "vote-backend/utils/ErrorResponse.hpp"
@@ -131,6 +134,13 @@ struct PasswordResetConfig {
   int max_attempts = 5;
   int rate_limit_window_minutes = 15;
   int rate_limit_max_requests = 3;
+
+  [[nodiscard]] std::string to_string() const {
+    return fmt::format(
+        "resend_api_url: {}, resend_api_key: {}, resend_from_email: "
+        "{}, app_reset_url: {}",
+        resend_api_url, resend_api_key, resend_from_email, app_reset_url);
+  }
 };
 
 /**
@@ -164,6 +174,7 @@ PasswordResetConfig load_password_reset_config() {
     json_cfg["password_reset_rate_limit_max_requests"] = 3;
   }
 
+  LOG_DEBUG << fmt::format("Raw config: {}", json_cfg.toStyledString());
   cfg.resend_api_url = json_cfg["resend_api_url"].asString();
   cfg.resend_api_key = json_cfg["resend_api_key"].asString();
   cfg.resend_from_email = json_cfg["resend_from_email"].asString();
@@ -218,8 +229,11 @@ void send_password_reset_email(const std::string& email,
 
   auto req = HttpRequest::newHttpJsonRequest(email_body);
   req->addHeader("Authorization", "Bearer " + cfg.resend_api_key);
-  req->setPath("/email");
+  req->setPath("/emails");
+  req->setMethod(drogon::HttpMethod::Post);
 
+  LOG_DEBUG << fmt::format("E-Mail send request: {}, path: {}", req->body(),
+                           req->getPath());
   auto client = drogon::HttpClient::newHttpClient(cfg.resend_api_url);
   client->sendRequest(
       req, [client](drogon::ReqResult result, const HttpResponsePtr& resp) {
@@ -230,6 +244,8 @@ void send_password_reset_email(const std::string& email,
           if (status < 200 || status >= 300) {
             LOG_WARN << "Resend API returned non-success status: " << status;
           }
+          LOG_DEBUG << fmt::format("Response (result={}) is: {}",
+                                   static_cast<int>(result), resp->body());
         }
       });
 }
@@ -1036,6 +1052,7 @@ void AuthController::forgot_password(
   }
 
   auto cfg = load_password_reset_config();
+  LOG_DEBUG << fmt::format("Password reset config:\n {}", cfg.to_string());
   auto db = app().getDbClient();
 
   // Single query checks both email existence AND rate limiting:

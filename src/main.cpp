@@ -9,6 +9,8 @@
 
 #include "drogon/HttpAppFramework.h"
 
+#include "vote-backend/utils/Config.hpp"
+
 int main() {
   char* conf_path_c = nullptr;
   conf_path_c = std::getenv("VOTE_BACKEND_CONFPATH");
@@ -28,6 +30,29 @@ int main() {
   spdlog::flush_every(std::chrono::seconds(1));
 
   drogon::app().loadConfigFile(fmt::format("{}/config.json", conf_path));
+
+  auto cfg = load_cors_config();
+  
+  drogon::app().registerPreRoutingAdvice(
+      [cfg](const drogon::HttpRequestPtr& req, drogon::AdviceCallback&& acb,
+            drogon::AdviceChainCallback&& accb) {
+        if (req->method() == drogon::Options) {
+          auto resp = drogon::HttpResponse::newHttpResponse();
+          resp->addHeader("Access-Control-Allow-Origin", cfg.allowed_origin);
+          resp->addHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+          resp->addHeader("Access-Control-Allow-Headers", "Content-Type");
+          resp->setStatusCode(drogon::k204NoContent);
+          acb(resp);
+          return;
+        }
+        accb();
+      });
+
+  drogon::app().registerPostHandlingAdvice(
+      [cfg](const drogon::HttpRequestPtr& req,
+            const drogon::HttpResponsePtr& resp) {
+        resp->addHeader("Access-Control-Allow-Origin", cfg.allowed_origin);
+      });
   drogon::app().run();
   return 0;
 }

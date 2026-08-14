@@ -36,6 +36,7 @@ set(
     src/utils/JwtService.cpp
     src/utils/UserIdHash.cpp
     src/utils/ErrorResponse.cpp
+    src/utils/Config.cpp
 )
 
 # main target
