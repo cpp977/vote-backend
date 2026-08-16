@@ -728,16 +728,18 @@ void QuestionController::answerQuestion(
     tags_json = Json::writeString(builder, (*jsonPtr)["tags"]);
   }
 
-  // Opaque, non-reversible hash of the user id (privacy-preserving): the
-  // database stores this instead of the raw id.
-  std::string hash_user_id =
-      vote_backend::utils::user_id_hasher().hash(user_id);
-
   auto dbClient = app().getDbClient();
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(callback));
   int64_t qid = static_cast<int64_t>(questionId);
+
+  // Opaque, non-reversible hash of the user id combined with the question id
+  // (privacy-preserving): the database stores this instead of the raw id.
+  // Including the question_id ensures the same user gets different hashes for
+  // different questions, preventing cross-question correlation.
+  std::string hash_user_id =
+      vote_backend::utils::user_id_hasher().hash(user_id, qid);
 
   // Only *approved* questions can be answered. Pending/rejected submissions
   // must not be reachable for answering; 404 keeps their existence hidden.

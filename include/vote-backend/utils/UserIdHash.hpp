@@ -9,16 +9,19 @@ namespace vote_backend::utils {
 /// to persist in the database without disclosing which concrete user answered
 /// a given question.
 ///
-/// The hash is an HMAC-SHA256 (hex-encoded) of the decimal user-id string,
-/// keyed with a server-side secret. Because the key never leaves the server,
-/// the stored value cannot be linked back to a specific user.
+/// The hash is an HMAC-SHA256 (hex-encoded) of the decimal user-id string
+/// combined with the question-id, keyed with a server-side secret. Because
+/// the key never leaves the server, the stored value cannot be linked back
+/// to a specific user. Including the question_id in the hash ensures that
+/// the same user gets different hashes for different questions, further
+/// enhancing privacy by preventing cross-question correlation.
 class UserIdHasher {
  public:
   explicit UserIdHasher(std::string key);
 
   /// Returns the hex-encoded HMAC-SHA256 of the decimal representation of
-  /// @p user_id.
-  std::string hash(int64_t user_id) const;
+  /// @p user_id combined with @p question_id.
+  std::string hash(int64_t user_id, int64_t question_id) const;
 
  private:
   std::string key_;

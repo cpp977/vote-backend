@@ -57,6 +57,7 @@ set(
     tests/jwt_service_test.cpp
     tests/jwt_auth_filter_test.cpp
     tests/admin_auth_filter_test.cpp
+    tests/UserIdHash_test.cpp
 )
 
 set(
