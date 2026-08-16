@@ -92,5 +92,6 @@ CREATE TABLE question_user (
     question_id  BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     hash_user_id TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    key_version SMALLINT NOT NULL DEFAULT 1,
     PRIMARY KEY (question_id, hash_user_id)
 );

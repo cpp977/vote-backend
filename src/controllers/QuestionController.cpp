@@ -19,6 +19,7 @@
 
 #include "vote-backend/models/AnswerOptions.hpp"
 #include "vote-backend/models/Questions.hpp"
+#include "vote-backend/utils/Config.hpp"
 #include "vote-backend/utils/UserIdHash.hpp"
 
 using drogon::orm::DrogonDbException;
@@ -732,7 +733,7 @@ void QuestionController::answerQuestion(
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(callback));
-  int64_t qid = static_cast<int64_t>(questionId);
+  auto qid = static_cast<int64_t>(questionId);
 
   // Opaque, non-reversible hash of the user id combined with the question id
   // (privacy-preserving): the database stores this instead of the raw id.
@@ -774,11 +775,12 @@ void QuestionController::answerQuestion(
             (*callbackPtr)(resp);
             return;
           }
-
-          *trans << "INSERT INTO question_user (question_id, hash_user_id) "
-                    "VALUES ($1::bigint, $2::text) "
+          auto cfg = load_hmac_config();
+          *trans << "INSERT INTO question_user (question_id, hash_user_id, "
+                    "key_version) "
+                    "VALUES ($1::bigint, $2::text, $3::smallint) "
                     "ON CONFLICT (question_id, hash_user_id) DO NOTHING"
-                 << qid << hash_user_id >>
+                 << qid << hash_user_id << cfg.hmac_key_version >>
               [=](const Result& r) {
                 if (r.affectedRows() == 0) {
                   // The user has already answered this question.
