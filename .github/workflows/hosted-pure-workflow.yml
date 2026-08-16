@@ -94,6 +94,9 @@ jobs:
         run: |
           cmake --workflow --preset check-format
 
+      - name: Create vault password file
+        run: echo ${{ secrets.VAULT_SECRET_DEV }} > ${HOME}/.ansible_vault_pass_dev
+
       # Build (Release configuration only) the whole project with Ninja (which is spawn by CMake).
       #
       # Note: if the preset misses the "configuration", it is possible to explicitly select the
