@@ -42,7 +42,7 @@ inline void run_ansible_playbook(const std::string& playbook,
       fmt::format(" -i {}/ansible/inventory/hosts.yml",
                   std::string(get_env("VOTE_BACKEND_SRC", ".")));
   std::string ansible_opts =
-      fmt::format(" --vault-id dev@~/.ansible_vault_pass_prod");
+      fmt::format(" --vault-id dev@~/.ansible_vault_pass_dev");
   std::string cmd = fmt::format("{} ansible-playbook {} {} {}", env_setup,
                                 playbook, inventory, ansible_opts);
   int rc = std::system(cmd.c_str());
