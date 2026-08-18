@@ -12,6 +12,9 @@
 using namespace drogon;
 using namespace vote_backend::utils;
 
+// A well-known UUID used as a test user id throughout the tests.
+static const std::string kTestUserId = "550e8400-e29b-41d4-a716-446655440000";
+
 // Test fixture for JwtAuthFilter
 class JwtAuthFilterFixture {
  public:
@@ -121,27 +124,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/protected");
 
-    auto token = service.generate_access_token(123, "testuser");
-    req->addHeader("Authorization", "Bearer " + token);
-
-    bool nextCalled = false;
-    bool filterCalled = false;
-
-    filter.doFilter(
-        req, [&](const HttpResponsePtr&) { filterCalled = true; },
-        [&]() { nextCalled = true; });
-
-    CHECK(nextCalled);
-    CHECK(!filterCalled);
-  }
-
-  TEST_CASE_FIXTURE(JwtAuthFilterFixture,
-                    "Sets user_id attribute on successful verification") {
-    JwtAuthFilter filter;
-    auto req = HttpRequest::newHttpRequest();
-    req->setPath("/protected");
-
-    int64_t userId = 123;
+    std::string userId = kTestUserId;
     auto token = service.generate_access_token(userId, "testuser");
     req->addHeader("Authorization", "Bearer " + token);
 
@@ -153,7 +136,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
     CHECK(nextCalled);
     auto attributes = req->attributes();
     CHECK(attributes->find("user_id"));
-    CHECK(attributes->get<int64_t>("user_id") == userId);
+    CHECK(attributes->get<std::string>("user_id") == userId);
   }
 
   TEST_CASE_FIXTURE(JwtAuthFilterFixture,
@@ -162,7 +145,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/protected");
 
-    auto token = service.generate_refresh_token(123);
+    auto token = service.generate_refresh_token(kTestUserId);
     req->addHeader("Authorization", "Bearer " + token);
 
     bool nextCalled = false;
@@ -185,7 +168,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now() -
                            std::chrono::minutes(30))
             .set_expires_at(std::chrono::system_clock::now() -
@@ -218,7 +201,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
         jwt::create()
             .set_issuer("wrong-issuer")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now())
             .set_expires_at(std::chrono::system_clock::now() +
                             std::chrono::minutes(15))
@@ -251,7 +234,7 @@ TEST_SUITE("JwtAuthFilter Tests") {
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now())
             .set_expires_at(std::chrono::system_clock::now() +
                             std::chrono::minutes(15))
@@ -307,21 +290,28 @@ TEST_SUITE("JwtAuthFilter Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtAuthFilterFixture,
-                    "Handles non-numeric sub claim in token") {
+                    "Accepts arbitrary string sub claim in token") {
     JwtAuthFilter filter;
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/protected");
+
+    // A subject claim that is a valid string but not a numeric id. The JWT
+    // subject is now always a UUID string, so the filter should accept any
+    // non-empty string subject.
+    std::string custom_sub = "not-a-number";
 
     auto token =
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("not-a-number")
+            .set_subject(custom_sub)
             .set_issued_at(std::chrono::system_clock::now())
             .set_expires_at(std::chrono::system_clock::now() +
                             std::chrono::minutes(15))
             .set_payload_claim("username", jwt::claim(std::string("testuser")))
             .set_payload_claim("type", jwt::claim(std::string("access")))
+            .set_payload_claim("is_admin", jwt::claim(false))
+            .set_payload_claim("is_active", jwt::claim(true))
             .set_id("non-numeric-sub-jti")
             .sign(jwt::algorithm::hs256{
                 "test-secret-key-for-unit-tests-only-32chars"});
@@ -337,6 +327,8 @@ TEST_SUITE("JwtAuthFilter Tests") {
 
     CHECK(nextCalled);
     CHECK(!filterCalled);
+    // The string subject should be stored as user_id in attributes.
+    CHECK(req->attributes()->get<std::string>("user_id") == custom_sub);
   }
 
   TEST_CASE_FIXTURE(JwtAuthFilterFixture, "Allows access to register path") {

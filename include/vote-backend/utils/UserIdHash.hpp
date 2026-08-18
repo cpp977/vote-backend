@@ -19,9 +19,9 @@ class UserIdHasher {
  public:
   explicit UserIdHasher(std::string key);
 
-  /// Returns the hex-encoded HMAC-SHA256 of the decimal representation of
+  /// Returns the hex-encoded HMAC-SHA256 of the UUID representation of
   /// @p user_id combined with @p question_id.
-  std::string hash(int64_t user_id, int64_t question_id) const;
+  std::string hash(const std::string& user_id, int64_t question_id) const;
 
  private:
   std::string key_;

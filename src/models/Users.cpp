@@ -29,7 +29,7 @@ const bool Users::hasPrimaryKey = true;
 const std::string Users::tableName = "\"users\"";
 
 const std::vector<typename Users::MetaData> Users::metaData_ = {
-    {"id", "int64_t", "bigint", 8, 1, 1, 1},
+    {"id", "std::string", "uuid", 36, 1, 1, 1},
     {"username", "std::string", "text", 0, 0, 0, 1},
     {"email", "std::string", "text", 0, 0, 0, 1},
     {"password_hash", "std::string", "text", 0, 0, 0, 1},
@@ -47,7 +47,7 @@ const std::string& Users::getColumnName(size_t index) noexcept(false) {
 Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
   if (indexOffset < 0) {
     if (!r["id"].isNull()) {
-      id_ = std::make_shared<int64_t>(r["id"].as<int64_t>());
+      id_ = std::make_shared<std::string>(r["id"].as<std::string>());
     }
     if (!r["username"].isNull()) {
       username_ =
@@ -120,7 +120,7 @@ Users::Users(const Row& r, const ssize_t indexOffset) noexcept {
     size_t index;
     index = offset + 0;
     if (!r[index].isNull()) {
-      id_ = std::make_shared<int64_t>(r[index].as<int64_t>());
+      id_ = std::make_shared<std::string>(r[index].as<std::string>());
     }
     index = offset + 1;
     if (!r[index].isNull()) {
@@ -197,7 +197,7 @@ Users::Users(const Json::Value& pJson) noexcept(false) {
   if (pJson.isMember("id")) {
     dirtyFlag_[0] = true;
     if (!pJson["id"].isNull()) {
-      id_ = std::make_shared<int64_t>((int64_t)pJson["id"].asInt64());
+      id_ = std::make_shared<std::string>(pJson["id"].asString());
     }
   }
   if (pJson.isMember("username")) {
@@ -292,8 +292,9 @@ Users::Users(const Json::Value& pJson) noexcept(false) {
 
 void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
   if (pJson.isMember("id")) {
+    dirtyFlag_[0] = true;
     if (!pJson["id"].isNull()) {
-      id_ = std::make_shared<int64_t>((int64_t)pJson["id"].asInt64());
+      id_ = std::make_shared<std::string>(pJson["id"].asString());
     }
   }
   if (pJson.isMember("username")) {
@@ -386,14 +387,16 @@ void Users::updateByJson(const Json::Value& pJson) noexcept(false) {
   }
 }
 
-const int64_t& Users::getValueOfId() const noexcept {
-  static const int64_t defaultValue = int64_t();
+const std::string& Users::getValueOfId() const noexcept {
+  static const std::string defaultValue = std::string();
   if (id_) return *id_;
   return defaultValue;
 }
-const std::shared_ptr<int64_t>& Users::getId() const noexcept { return id_; }
-void Users::setId(const int64_t& pId) noexcept {
-  id_ = std::make_shared<int64_t>(pId);
+const std::shared_ptr<std::string>& Users::getId() const noexcept {
+  return id_;
+}
+void Users::setId(const std::string& pId) noexcept {
+  id_ = std::make_shared<std::string>(pId);
   dirtyFlag_[0] = true;
 }
 const typename Users::PrimaryKeyType& Users::getPrimaryKey() const {
@@ -542,7 +545,7 @@ void Users::setIsAdmin(bool&& pIsAdmin) noexcept {
   dirtyFlag_[9] = true;
 }
 
-void Users::updateId(const uint64_t id) {}
+void Users::updateId(const std::string& id) {}
 
 const std::vector<std::string>& Users::insertColumns() noexcept {
   static const std::vector<std::string> inCols = {
@@ -718,7 +721,7 @@ void Users::updateArgs(drogon::orm::internal::SqlBinder& binder) const {
 Json::Value Users::toJson() const {
   Json::Value ret;
   if (getId()) {
-    ret["id"] = (Json::Int64)getValueOfId();
+    ret["id"] = getValueOfId();
   } else {
     ret["id"] = Json::Value();
   }
@@ -862,7 +865,7 @@ bool Users::validJsonOfField(size_t index, const std::string& fieldName,
         err = "The automatic primary key cannot be set";
         return false;
       }
-      if (!pJson.isInt64()) {
+      if (!pJson.isString()) {
         err = "Type error in the " + fieldName + " field";
         return false;
       }

@@ -53,7 +53,7 @@ void UserController::list_users(
           for (const auto& row : r) {
             // Return both ID and username fields
             Json::Value userObj;
-            userObj["id"] = row.at("id").as<int64_t>();
+            userObj["id"] = row.at("id").as<std::string>();
             userObj["username"] = row.at("username").as<std::string>();
             arr.append(userObj);
           }
@@ -79,7 +79,7 @@ void UserController::list_users(
 
 void UserController::get_user_by_id(
     const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
-    int64_t user_id) {
+    const std::string& user_id) {
   auto dbClient = app().getDbClient();
 
   // Query to retrieve all user columns except password_hash for the given ID
@@ -101,7 +101,7 @@ void UserController::get_user_by_id(
           Json::Value userObj;
 
           // Map all columns except password_hash
-          userObj["id"] = row.at("id").as<int64_t>();
+          userObj["id"] = row.at("id").as<std::string>();
           userObj["username"] = row.at("username").as<std::string>();
           userObj["email"] = row.at("email").as<std::string>();
           userObj["birth_year"] = row.at("birth_year").as<int>();
@@ -135,7 +135,7 @@ void UserController::get_user_by_id(
 
 void UserController::set_user_inactive(
     const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
-    int64_t user_id) {
+    const std::string& user_id) {
   auto dbClient = app().getDbClient();
 
   const std::string sql =
@@ -153,7 +153,7 @@ void UserController::set_user_inactive(
 
           const auto& row = r[0];
           Json::Value respObj;
-          respObj["id"] = row.at("id").as<int64_t>();
+          respObj["id"] = row.at("id").as<std::string>();
           respObj["is_active"] = row.at("is_active").as<bool>();
           respObj["message"] = "User set to inactive";
 
@@ -180,7 +180,7 @@ void UserController::set_user_inactive(
 
 void UserController::set_user_active(
     const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& cb,
-    int64_t user_id) {
+    const std::string& user_id) {
   auto dbClient = app().getDbClient();
 
   const std::string sql =
@@ -198,7 +198,7 @@ void UserController::set_user_active(
 
           const auto& row = r[0];
           Json::Value respObj;
-          respObj["id"] = row.at("id").as<int64_t>();
+          respObj["id"] = row.at("id").as<std::string>();
           respObj["is_active"] = row.at("is_active").as<bool>();
           respObj["message"] = "User set to active";
 
@@ -241,8 +241,9 @@ void UserController::delete_user(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& cb) {
   // Retrieve the caller's identity from the JWT (set by JwtAuthFilter).
-  auto user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  auto user_id = req->attributes()->get<std::string>("user_id");
+  LOG_DEBUG << fmt::format("Deleting user with id={}", user_id);
+  if (user_id.empty()) {
     send_error(cb, "Unauthorized", k401Unauthorized);
     return;
   }

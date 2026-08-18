@@ -234,3 +234,26 @@ struct GlobalTestFixture {
 };
 
 extern GlobalTestFixture global_fixture;
+
+// ---------------------------------------------------------------------------
+// Convenience helper: resolve a seed user's UUID by username
+// ---------------------------------------------------------------------------
+namespace test_helpers {
+inline std::string get_userid(const std::string& username) {
+  // Query the admin list endpoint using the global fixture's access token.
+  auto resp = http_request("GET", "127.0.0.1", 8848, "/admin/users", "",
+                           "application/json", global_fixture.access_token);
+  if (resp.status != 200 || !resp.json_body.is_array()) {
+    throw std::runtime_error(
+        "Failed to list users for get_userid lookup: status " +
+        std::to_string(resp.status) + ", body: " + resp.raw_body);
+  }
+  for (const auto& user : resp.json_body) {
+    if (user.contains("username") &&
+        user["username"].get<std::string>() == username) {
+      return user["id"].get<std::string>();
+    }
+  }
+  throw std::runtime_error("User not found in get_userid lookup: " + username);
+}
+}  // namespace test_helpers

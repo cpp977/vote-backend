@@ -90,7 +90,7 @@ JwtService::JwtService(const std::string& secret, int access_expiry_minutes,
       access_expiry_minutes_(access_expiry_minutes),
       refresh_expiry_days_(refresh_expiry_days) {}
 
-std::string JwtService::generate_access_token(int64_t user_id,
+std::string JwtService::generate_access_token(const std::string& user_id,
                                               const std::string& username,
                                               bool is_admin,
                                               bool is_active) const {
@@ -105,7 +105,7 @@ std::string JwtService::generate_access_token(int64_t user_id,
       jwt::create()
           .set_issuer("vote-backend")
           .set_type("JWT")
-          .set_subject(std::to_string(user_id))
+          .set_subject(user_id)
           .set_issued_at(now)
           .set_expires_at(exp)
           .set_payload_claim("username", jwt::claim(username))
@@ -118,7 +118,8 @@ std::string JwtService::generate_access_token(int64_t user_id,
   return token;
 }
 
-std::string JwtService::generate_refresh_token(int64_t user_id) const {
+std::string JwtService::generate_refresh_token(
+    const std::string& user_id) const {
   auto now = std::chrono::system_clock::now();
   auto exp = now + std::chrono::hours(24 * refresh_expiry_days_);
   LOG_INFO << fmt::format(
@@ -130,7 +131,7 @@ std::string JwtService::generate_refresh_token(int64_t user_id) const {
       jwt::create()
           .set_issuer("vote-backend")
           .set_type("JWT")
-          .set_subject(std::to_string(user_id))
+          .set_subject(user_id)
           .set_issued_at(now)
           .set_expires_at(exp)
           .set_payload_claim("type", jwt::claim(std::string("refresh")))

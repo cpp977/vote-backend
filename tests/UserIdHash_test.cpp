@@ -10,7 +10,7 @@ TEST_CASE(
   // Use a fixed key for deterministic testing
   UserIdHasher hasher("test-secret-key-min-32-chars-long");
 
-  const int64_t user_id = 12345;
+  const std::string user_id = "550e8400-e29b-41d4-a716-446655440000";
   const int64_t question_id_1 = 100;
   const int64_t question_id_2 = 200;
 
@@ -37,7 +37,7 @@ TEST_CASE(
 TEST_CASE("UserIdHasher produces same hash for same user and question") {
   UserIdHasher hasher("test-secret-key-min-32-chars-long");
 
-  const int64_t user_id = 12345;
+  const std::string user_id = "550e8400-e29b-41d4-a716-446655440000";
   const int64_t question_id = 100;
 
   std::string hash1 = hasher.hash(user_id, question_id);
@@ -51,8 +51,8 @@ TEST_CASE(
     "question") {
   UserIdHasher hasher("test-secret-key-min-32-chars-long");
 
-  const int64_t user_id_1 = 12345;
-  const int64_t user_id_2 = 54321;
+  const std::string user_id_1 = "550e8400-e29b-41d4-a716-446655440000";
+  const std::string user_id_2 = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
   const int64_t question_id = 100;
 
   std::string hash1 = hasher.hash(user_id_1, question_id);
@@ -65,7 +65,7 @@ TEST_CASE("UserIdHasher produces different hashes with different keys") {
   UserIdHasher hasher1("key-one-min-32-characters-long");
   UserIdHasher hasher2("key-two-min-32-characters-long");
 
-  const int64_t user_id = 12345;
+  const std::string user_id = "550e8400-e29b-41d4-a716-446655440000";
   const int64_t question_id = 100;
 
   std::string hash1 = hasher1.hash(user_id, question_id);

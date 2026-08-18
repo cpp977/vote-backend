@@ -13,6 +13,9 @@
 using namespace drogon;
 using namespace vote_backend::utils;
 
+// A well-known UUID used as a test user id throughout the tests.
+static const std::string kTestUserId = "550e8400-e29b-41d4-a716-446655440000";
+
 // Test fixture for AdminAuthFilter
 class AdminAuthFilterFixture {
  public:
@@ -106,7 +109,8 @@ TEST_SUITE("AdminAuthFilter Tests") {
     req->setPath("/admin/things");
 
     // A valid token, but issued for a regular (non-admin) user.
-    auto token = service.generate_access_token(123, "regularuser", false);
+    auto token =
+        service.generate_access_token(kTestUserId, "regularuser", false);
     req->addHeader("Authorization", "Bearer " + token);
 
     bool nextCalled = false;
@@ -138,7 +142,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(now)
             .set_expires_at(now + std::chrono::minutes(15))
             .set_payload_claim("username", jwt::claim(std::string("admin")))
@@ -171,7 +175,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/admin/things");
 
-    int64_t userId = 123;
+    std::string userId = kTestUserId;
     auto token = service.generate_access_token(userId, "adminuser", true);
     req->addHeader("Authorization", "Bearer " + token);
 
@@ -191,7 +195,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/admin/things");
 
-    int64_t userId = 123;
+    std::string userId = kTestUserId;
     auto token = service.generate_access_token(userId, "adminuser", true);
     req->addHeader("Authorization", "Bearer " + token);
 
@@ -203,7 +207,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
     CHECK(nextCalled);
     auto attributes = req->attributes();
     CHECK(attributes->find("user_id"));
-    CHECK(attributes->get<int64_t>("user_id") == userId);
+    CHECK(attributes->get<std::string>("user_id") == userId);
     CHECK(attributes->find("is_admin"));
     CHECK(attributes->get<bool>("is_admin") == true);
   }
@@ -217,7 +221,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now() -
                            std::chrono::minutes(30))
             .set_expires_at(std::chrono::system_clock::now() -
@@ -251,7 +255,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
         jwt::create()
             .set_issuer("wrong-issuer")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now())
             .set_expires_at(std::chrono::system_clock::now() +
                             std::chrono::minutes(15))
@@ -285,7 +289,7 @@ TEST_SUITE("AdminAuthFilter Tests") {
         jwt::create()
             .set_issuer("vote-backend")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(std::chrono::system_clock::now())
             .set_expires_at(std::chrono::system_clock::now() +
                             std::chrono::minutes(15))
@@ -311,13 +315,13 @@ TEST_SUITE("AdminAuthFilter Tests") {
 
   TEST_CASE_FIXTURE(AdminAuthFilterFixture,
                     "Generated admin token carries is_admin claim") {
-    int64_t user_id = 42;
+    std::string user_id = kTestUserId;
     auto token = service.generate_access_token(user_id, "admin", true);
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
     CHECK(claims["is_admin"].asBool() == true);
-    CHECK(claims["sub"].asString() == std::to_string(user_id));
+    CHECK(claims["sub"].asString() == kTestUserId);
   }
 
 }  // TEST_SUITE

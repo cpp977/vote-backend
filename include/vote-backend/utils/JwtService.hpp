@@ -34,7 +34,7 @@ public:
 
     /**
      * @brief Generate a short-lived access token.
-     * @param user_id The user's database ID.
+     * @param user_id The user's database ID (UUID string).
      * @param username The user's username.
      * @param is_admin Whether the user has admin privileges. Embedded as the
      *                 `is_admin` claim so the AdminAuthFilter can enforce it.
@@ -42,17 +42,17 @@ public:
      *                  `is_active` claim so the JwtAuthFilter can enforce it.
      * @return The encoded JWT string.
      */
-    std::string generate_access_token(int64_t user_id,
-                                      const std::string &username,
+    std::string generate_access_token(const std::string& user_id,
+                                      const std::string& username,
                                       bool is_admin = false,
                                       bool is_active = true) const;
 
     /**
      * @brief Generate a long-lived refresh token.
-     * @param user_id The user's database ID.
+     * @param user_id The user's database ID (UUID string).
      * @return The encoded JWT string (includes a unique jti claim).
      */
-    std::string generate_refresh_token(int64_t user_id) const;
+    std::string generate_refresh_token(const std::string& user_id) const;
 
     /**
      * @brief Verify a JWT token and extract its claims.

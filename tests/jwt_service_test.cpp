@@ -10,6 +10,9 @@
 
 using namespace vote_backend::utils;
 
+// A well-known UUID used as a test user id throughout the tests.
+static const std::string kTestUserId = "550e8400-e29b-41d4-a716-446655440000";
+
 // Test fixture for JwtService with a known secret
 class JwtServiceFixture {
  public:
@@ -24,13 +27,13 @@ TEST_SUITE("JwtService Tests") {
                     "Constructor initializes with correct values") {
     // The fixture creates a service with known values
     // We can verify by checking token generation works
-    auto token = service.generate_access_token(1, "testuser");
+    auto token = service.generate_access_token(kTestUserId, "testuser");
     CHECK(!token.empty());
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Generate access token returns non-empty string") {
-    auto token = service.generate_access_token(123, "john_doe");
+    auto token = service.generate_access_token(kTestUserId, "john_doe");
 
     CHECK(!token.empty());
     // JWT tokens have three parts separated by dots
@@ -40,14 +43,13 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Generate access token contains correct claims") {
-    int64_t user_id = 42;
     std::string username = "alice";
 
-    auto token = service.generate_access_token(user_id, username);
+    auto token = service.generate_access_token(kTestUserId, username);
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
-    CHECK(claims["sub"].asString() == std::to_string(user_id));
+    CHECK(claims["sub"].asString() == kTestUserId);
     CHECK(claims["username"].asString() == username);
     CHECK(claims["iss"].asString() == "vote-backend");
     CHECK(claims["type"].asString() == "access");
@@ -55,7 +57,7 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Generate refresh token returns non-empty string") {
-    auto token = service.generate_refresh_token(456);
+    auto token = service.generate_refresh_token(kTestUserId);
 
     CHECK(!token.empty());
     CHECK(token.find('.') != std::string::npos);
@@ -63,13 +65,11 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Generate refresh token contains correct claims") {
-    int64_t user_id = 789;
-
-    auto token = service.generate_refresh_token(user_id);
+    auto token = service.generate_refresh_token(kTestUserId);
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
-    CHECK(claims["sub"].asString() == std::to_string(user_id));
+    CHECK(claims["sub"].asString() == kTestUserId);
     CHECK(claims["iss"].asString() == "vote-backend");
     CHECK(claims["type"].asString() == "refresh");
     // Refresh tokens should NOT have username claim
@@ -77,20 +77,20 @@ TEST_SUITE("JwtService Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Verify valid access token succeeds") {
-    auto token = service.generate_access_token(100, "validuser");
+    auto token = service.generate_access_token(kTestUserId, "validuser");
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
-    CHECK(claims["sub"].asString() == "100");
+    CHECK(claims["sub"].asString() == kTestUserId);
     CHECK(claims["username"].asString() == "validuser");
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Verify valid refresh token succeeds") {
-    auto token = service.generate_refresh_token(200);
+    auto token = service.generate_refresh_token(kTestUserId);
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
-    CHECK(claims["sub"].asString() == "200");
+    CHECK(claims["sub"].asString() == kTestUserId);
     CHECK(claims["type"].asString() == "refresh");
   }
 
@@ -109,7 +109,7 @@ TEST_SUITE("JwtService Tests") {
                     "Verify token with wrong signature returns null") {
     // Create a token with a different secret
     JwtService other_service("different-secret-key-for-testing-32chars", 15, 7);
-    auto token = other_service.generate_access_token(1, "user");
+    auto token = other_service.generate_access_token(kTestUserId, "user");
 
     // Try to verify with our service (different secret)
     auto claims = service.verify_token(token);
@@ -117,7 +117,7 @@ TEST_SUITE("JwtService Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Verify tampered token returns null") {
-    auto token = service.generate_access_token(1, "user");
+    auto token = service.generate_access_token(kTestUserId, "user");
 
     // Tamper with the token by changing a character
     if (token.length() > 10) {
@@ -138,7 +138,7 @@ TEST_SUITE("JwtService Tests") {
         jwt::create()
             .set_issuer("wrong-issuer")
             .set_type("JWT")
-            .set_subject("1")
+            .set_subject(kTestUserId)
             .set_issued_at(now)
             .set_expires_at(exp)
             .set_payload_claim("type", jwt::claim(std::string("access")))
@@ -150,7 +150,7 @@ TEST_SUITE("JwtService Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Extract JTI from valid token") {
-    auto token = service.generate_refresh_token(123);
+    auto token = service.generate_refresh_token(kTestUserId);
     auto jti = service.extract_jti_unsafe(token);
 
     // JTI should be present in refresh tokens (jwt-cpp may or may not add it)
@@ -169,25 +169,26 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Different user IDs produce different tokens") {
-    auto token1 = service.generate_access_token(1, "user1");
-    auto token2 = service.generate_access_token(2, "user2");
+    std::string user2_id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+    auto token1 = service.generate_access_token(kTestUserId, "user1");
+    auto token2 = service.generate_access_token(user2_id, "user2");
 
     CHECK(token1 != token2);
 
     auto claims1 = service.verify_token(token1);
     auto claims2 = service.verify_token(token2);
 
-    CHECK(claims1["sub"].asString() == "1");
-    CHECK(claims2["sub"].asString() == "2");
+    CHECK(claims1["sub"].asString() == kTestUserId);
+    CHECK(claims2["sub"].asString() == user2_id);
   }
 
   TEST_CASE_FIXTURE(
       JwtServiceFixture,
       "Same user ID produces different tokens (due to timestamps)") {
-    auto token1 = service.generate_access_token(1, "user");
+    auto token1 = service.generate_access_token(kTestUserId, "user");
     // Small delay to ensure different timestamp
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    auto token2 = service.generate_access_token(1, "user");
+    auto token2 = service.generate_access_token(kTestUserId, "user");
 
     // Tokens should be different due to different issued_at timestamps
     CHECK(token1 != token2);
@@ -196,14 +197,14 @@ TEST_SUITE("JwtService Tests") {
     auto claims1 = service.verify_token(token1);
     auto claims2 = service.verify_token(token2);
 
-    CHECK(claims1["sub"].asString() == "1");
-    CHECK(claims2["sub"].asString() == "1");
+    CHECK(claims1["sub"].asString() == kTestUserId);
+    CHECK(claims2["sub"].asString() == kTestUserId);
     CHECK(claims1["username"].asString() == "user");
     CHECK(claims2["username"].asString() == "user");
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Token contains issued_at claim") {
-    auto token = service.generate_access_token(1, "user");
+    auto token = service.generate_access_token(kTestUserId, "user");
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
@@ -212,7 +213,7 @@ TEST_SUITE("JwtService Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Token contains expires_at claim") {
-    auto token = service.generate_access_token(1, "user");
+    auto token = service.generate_access_token(kTestUserId, "user");
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
@@ -225,8 +226,8 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Access token has shorter expiry than refresh token") {
-    auto access_token = service.generate_access_token(1, "user");
-    auto refresh_token = service.generate_refresh_token(1);
+    auto access_token = service.generate_access_token(kTestUserId, "user");
+    auto refresh_token = service.generate_refresh_token(kTestUserId);
 
     auto access_claims = service.verify_token(access_token);
     auto refresh_claims = service.verify_token(refresh_token);
@@ -256,8 +257,9 @@ TEST_SUITE("JwtService Tests") {
     // Create service with custom expiry times
     JwtService custom_service("another-test-secret-key-32chars!", 30, 14);
 
-    auto access_token = custom_service.generate_access_token(1, "user");
-    auto refresh_token = custom_service.generate_refresh_token(1);
+    auto access_token =
+        custom_service.generate_access_token(kTestUserId, "user");
+    auto refresh_token = custom_service.generate_refresh_token(kTestUserId);
 
     auto access_claims = custom_service.verify_token(access_token);
     auto refresh_claims = custom_service.verify_token(refresh_token);
@@ -277,8 +279,8 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Token type claim distinguishes access and refresh") {
-    auto access_token = service.generate_access_token(1, "user");
-    auto refresh_token = service.generate_refresh_token(1);
+    auto access_token = service.generate_access_token(kTestUserId, "user");
+    auto refresh_token = service.generate_refresh_token(kTestUserId);
 
     auto access_claims = service.verify_token(access_token);
     auto refresh_claims = service.verify_token(refresh_token);
@@ -289,9 +291,9 @@ TEST_SUITE("JwtService Tests") {
 
   TEST_CASE_FIXTURE(JwtServiceFixture,
                     "Multiple tokens for same user can coexist") {
-    auto token1 = service.generate_access_token(1, "user");
-    auto token2 = service.generate_access_token(1, "user");
-    auto token3 = service.generate_access_token(1, "user");
+    auto token1 = service.generate_access_token(kTestUserId, "user");
+    auto token2 = service.generate_access_token(kTestUserId, "user");
+    auto token3 = service.generate_access_token(kTestUserId, "user");
 
     // All should be valid
     CHECK(!service.verify_token(token1).isNull());
@@ -303,23 +305,23 @@ TEST_SUITE("JwtService Tests") {
     auto claims2 = service.verify_token(token2);
     auto claims3 = service.verify_token(token3);
 
-    CHECK(claims1["sub"].asString() == "1");
-    CHECK(claims2["sub"].asString() == "1");
-    CHECK(claims3["sub"].asString() == "1");
+    CHECK(claims1["sub"].asString() == kTestUserId);
+    CHECK(claims2["sub"].asString() == kTestUserId);
+    CHECK(claims3["sub"].asString() == kTestUserId);
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Large user ID is handled correctly") {
-    int64_t large_id = 9999999999999;
+    std::string large_id = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     auto token = service.generate_access_token(large_id, "user");
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
-    CHECK(claims["sub"].asString() == std::to_string(large_id));
+    CHECK(claims["sub"].asString() == large_id);
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Username with special characters") {
     std::string special_username = "user@example.com";
-    auto token = service.generate_access_token(1, special_username);
+    auto token = service.generate_access_token(kTestUserId, special_username);
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());
@@ -327,7 +329,7 @@ TEST_SUITE("JwtService Tests") {
   }
 
   TEST_CASE_FIXTURE(JwtServiceFixture, "Empty username is handled") {
-    auto token = service.generate_access_token(1, "");
+    auto token = service.generate_access_token(kTestUserId, "");
     auto claims = service.verify_token(token);
 
     CHECK(!claims.isNull());

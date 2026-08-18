@@ -353,7 +353,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["birth_year"] = row["birth_year"].as<int>();
@@ -384,7 +384,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["birth_year"] = row["birth_year"].as<int>();
@@ -414,7 +414,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["birth_year"] = row["birth_year"].as<int>();
@@ -444,7 +444,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["gender"] = row["gender"].as<std::string>();
@@ -473,7 +473,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["birth_year"] = row["birth_year"].as<int>();
@@ -501,7 +501,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["gender"] = row["gender"].as<std::string>();
@@ -529,7 +529,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["nationality"] = row["nationality"].as<std::string>();
@@ -557,7 +557,7 @@ void AuthController::register_user(
                 }
                 const auto& row = r2[0];
                 Json::Value user;
-                user["id"] = Json::Int64(row["id"].as<int64_t>());
+                user["id"] = row["id"].as<std::string>();
                 user["username"] = row["username"].as<std::string>();
                 user["email"] = row["email"].as<std::string>();
                 user["created_at"] = row["created_at"].as<std::string>();
@@ -619,7 +619,7 @@ void AuthController::login(const HttpRequestPtr& req,
           return;
         }
 
-        int64_t user_id = row["id"].as<int64_t>();
+        std::string user_id = row["id"].as<std::string>();
         std::string uname = row["username"].as<std::string>();
         bool is_admin = row["is_admin"].as<bool>();
         bool is_active = row["is_active"].as<bool>();
@@ -698,8 +698,8 @@ void AuthController::logout(const HttpRequestPtr& req,
 void AuthController::me(const HttpRequestPtr& req,
                         std::function<void(const HttpResponsePtr&)>&& cb) {
   // Retrieve user_id set by JwtAuthFilter
-  auto user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  auto user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.length() == 0) {
     send_error(cb, "Unauthorized", k401Unauthorized);
     return;
   }
@@ -717,7 +717,7 @@ void AuthController::me(const HttpRequestPtr& req,
 
         const auto& row = r[0];
         Json::Value user;
-        user["id"] = Json::Int64(row["id"].as<int64_t>());
+        user["id"] = row["id"].as<std::string>();
         user["username"] = row["username"].as<std::string>();
         user["email"] = row["email"].as<std::string>();
 
@@ -756,8 +756,8 @@ void AuthController::update_me(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& cb) {
   // Identify the user from the JWT (set by JwtAuthFilter).
-  auto user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  auto user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.length() == 0) {
     send_error(cb, "Unauthorized", k401Unauthorized);
     return;
   }
@@ -880,7 +880,7 @@ void AuthController::update_me(
 
         const auto& row = r[0];
         Json::Value user;
-        user["id"] = Json::Int64(row["id"].as<int64_t>());
+        user["id"] = row["id"].as<std::string>();
         user["username"] = row["username"].as<std::string>();
         user["email"] = row["email"].as<std::string>();
         if (!row["birth_year"].isNull()) {
@@ -949,7 +949,7 @@ void AuthController::refresh(const HttpRequestPtr& req,
     return;
   }
 
-  int64_t user_id = std::stoll(claims["sub"].asString());
+  std::string user_id = claims["sub"].asString();
   std::string token_hash = sha256_hex(refresh_token);
 
   auto db = app().getDbClient();
@@ -1076,7 +1076,7 @@ void AuthController::forgot_password(
           return;
         }
 
-        int64_t user_id = r[0]["id"].as<int64_t>();
+        std::string user_id = r[0]["id"].as<std::string>();
 
         // Generate a cryptographically secure token and hash it for storage.
         std::string raw_token;
@@ -1093,7 +1093,7 @@ void AuthController::forgot_password(
         // Persist the hashed token with an expiry timestamp.
         std::string insert_sql = fmt::format(
             "INSERT INTO password_resets (user_id, token_hash, expires_at) "
-            "VALUES ($1::bigint, $2::text, NOW() + INTERVAL '{} hours')",
+            "VALUES ($1::uuid, $2::text, NOW() + INTERVAL '{} hours')",
             cfg.token_expiry_hours);
 
         db->execSqlAsync(
@@ -1188,7 +1188,7 @@ void AuthController::reset_password(
             return;
           }
 
-          int64_t user_id = r[0]["user_id"].as<int64_t>();
+          std::string user_id = r[0]["user_id"].as<std::string>();
 
           // Token successfully claimed — hash the new password.
           std::string pw_hash;
@@ -1214,12 +1214,12 @@ void AuthController::reset_password(
           // 1. Update the user's password hash.
           txn->execSqlAsync(
               "UPDATE users SET password_hash = $1::text, "
-              "password_changed_at = NOW() WHERE id = $2::bigint",
+              "password_changed_at = NOW() WHERE id = $2::uuid",
               [txn, cb, user_id](const drogon::orm::Result&) {
                 // 2. Invalidate all refresh tokens for this user.
                 txn->execSqlAsync(
                     "UPDATE refresh_tokens SET revoked = TRUE "
-                    "WHERE user_id = $1::bigint",
+                    "WHERE user_id = $1::uuid",
                     [txn](const drogon::orm::Result&) {
                       // Both writes succeeded; the transaction
                       // auto-commits when this lambda returns and

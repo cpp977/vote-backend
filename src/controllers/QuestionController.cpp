@@ -48,8 +48,7 @@ Json::Value questionToJson(const drogon::orm::Row& row) {
     q["submission_status"] = row["submission_status"].as<std::string>();
   }
   if (!row["submitted_by"].isNull()) {
-    q["submitted_by"] = Json::Value(
-        static_cast<Json::Int64>(row["submitted_by"].as<long long>()));
+    q["submitted_by"] = row["submitted_by"].as<std::string>();
   }
   return q;
 }
@@ -235,7 +234,7 @@ void QuestionController::getAnswerOptionsWithAuth(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(cb));
 
-  int64_t user_id = req->attributes()->get<int64_t>("user_id");
+  std::string user_id = req->attributes()->get<std::string>("user_id");
 
   // Resolve the question and its visibility. Unapproved questions are
   // only visible to their submitter; everyone else gets 404.
@@ -251,7 +250,7 @@ void QuestionController::getAnswerOptionsWithAuth(
         }
         const std::string status = r[0]["submission_status"].as<std::string>();
         bool owner = (!r[0]["submitted_by"].isNull() &&
-                      r[0]["submitted_by"].as<long long>() == user_id);
+                      r[0]["submitted_by"].as<std::string>() == user_id);
         if (status != "approved" && !owner) {
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k404NotFound);
@@ -690,8 +689,8 @@ void QuestionController::answerQuestion(
   // 1. Authentication: the JWT filter stores the numeric user id in the
   //    request attributes. A missing/zero id means the request was not
   //    authenticated with a usable subject.
-  int64_t user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  std::string user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.empty()) {
     Json::Value err;
     err["error"] = "Unauthenticated";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -876,12 +875,10 @@ Json::Value submissionToJson(const drogon::orm::Row& row) {
     q["submission_status"] = row["submission_status"].as<std::string>();
   }
   if (!row["submitted_by"].isNull()) {
-    q["submitted_by"] = Json::Value(
-        static_cast<Json::Int64>(row["submitted_by"].as<long long>()));
+    q["submitted_by"] = row["submitted_by"].as<std::string>();
   }
   if (!row["reviewed_by"].isNull()) {
-    q["reviewed_by"] = Json::Value(
-        static_cast<Json::Int64>(row["reviewed_by"].as<long long>()));
+    q["reviewed_by"] = row["reviewed_by"].as<std::string>();
   }
   return q;
 }
@@ -890,8 +887,8 @@ Json::Value submissionToJson(const drogon::orm::Row& row) {
 void QuestionController::getMySubmissions(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-  int64_t user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  std::string user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.empty()) {
     Json::Value err;
     err["error"] = "Unauthenticated";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -908,7 +905,7 @@ void QuestionController::getMySubmissions(
   *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
                "submission_status, submitted_by, reviewed_by "
                "FROM questions "
-               "WHERE submitted_by = $1::bigint "
+               "WHERE submitted_by = $1::uuid "
                "ORDER BY created_at DESC"
             << user_id >>
       [callbackPtr](const Result& r) {
@@ -979,7 +976,7 @@ void QuestionController::approveQuestion(
     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
     int questionId) {
   // Reviewed-by is taken from the verified admin JWT; clients cannot forge it.
-  int64_t admin_id = req->attributes()->get<int64_t>("user_id");
+  std::string admin_id = req->attributes()->get<std::string>("user_id");
 
   auto dbClient = app().getDbClient();
   auto callbackPtr =
@@ -988,7 +985,7 @@ void QuestionController::approveQuestion(
 
   *dbClient << "UPDATE questions "
                "SET submission_status = 'approved', "
-               "    reviewed_by = $2::bigint, "
+               "    reviewed_by = $2::uuid, "
                "    reviewed_at = NOW() "
                "WHERE id = $1::bigint "
                "RETURNING id, text, category_id, language, min_age, "
@@ -1019,7 +1016,7 @@ void QuestionController::rejectQuestion(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
     int questionId) {
-  int64_t admin_id = req->attributes()->get<int64_t>("user_id");
+  std::string admin_id = req->attributes()->get<std::string>("user_id");
 
   auto dbClient = app().getDbClient();
   auto callbackPtr =
@@ -1028,7 +1025,7 @@ void QuestionController::rejectQuestion(
 
   *dbClient << "UPDATE questions "
                "SET submission_status = 'rejected', "
-               "    reviewed_by = $2::bigint, "
+               "    reviewed_by = $2::uuid, "
                "    reviewed_at = NOW() "
                "WHERE id = $1::bigint "
                "RETURNING id, text, category_id, language, min_age, "
@@ -1461,8 +1458,8 @@ void QuestionController::submitQuestion(
 
   // The submitter is taken from the verified JWT, never from the request body,
   // so a user cannot forge ownership or self-approve.
-  int64_t user_id = req->attributes()->get<int64_t>("user_id");
-  if (user_id == 0) {
+  std::string user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.empty()) {
     Json::Value err;
     err["error"] = "Unauthenticated";
     auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -1497,7 +1494,7 @@ void QuestionController::submitQuestion(
     *trans << "INSERT INTO questions (text, category_id, language, min_age, "
               "submission_status, submitted_by) "
               "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, "
-              "'pending', $5::bigint) "
+              "'pending', $5::uuid) "
               "RETURNING id, text, category_id, language, min_age, "
               "created_at, submission_status, submitted_by"
            << text << category_id << language << min_age << user_id >>

@@ -44,17 +44,17 @@ class UserController : public drogon::HttpController<UserController> {
     void get_user_by_id(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb,
-        int64_t user_id);
+        const std::string& user_id);
 
     void set_user_inactive(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb,
-        int64_t user_id);
+        const std::string& user_id);
 
     void set_user_active(
         const HttpRequestPtr& req,
         std::function<void(const HttpResponsePtr&)>&& cb,
-        int64_t user_id);
+        const std::string& user_id);
 
     void delete_user(
         const HttpRequestPtr& req,

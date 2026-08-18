@@ -52,9 +52,9 @@ std::string load_secret() {
 
 UserIdHasher::UserIdHasher(std::string key) : key_(std::move(key)) {}
 
-std::string UserIdHasher::hash(int64_t user_id, int64_t question_id) const {
-  const std::string message =
-      std::to_string(user_id) + ":" + std::to_string(question_id);
+std::string UserIdHasher::hash(const std::string& user_id,
+                               int64_t question_id) const {
+  const std::string message = user_id + ":" + std::to_string(question_id);
 
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned int digest_len = 0;

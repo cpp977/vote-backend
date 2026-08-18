@@ -42,6 +42,7 @@ HMACConfig load_hmac_config() {
     json_cfg["hmac_key_version"] = 1;
   }
 
-  cfg.hmac_key_version = static_cast<int16_t>(json_cfg["hmac_key_version"].asInt());
+  cfg.hmac_key_version =
+      static_cast<int16_t>(json_cfg["hmac_key_version"].asInt());
   return cfg;
 }

@@ -42,9 +42,9 @@ CREATE TABLE questions (
     -- User who submitted the question (NULL for seed / admin-approved content).
     -- The foreign key is added in 002_auth.sql because the users table is
     -- created there, which runs after this file.
-    submitted_by BIGINT,
+    submitted_by UUID,
     -- Admin who approved / rejected the submission (NULL until reviewed).
-    reviewed_by  BIGINT,
+    reviewed_by  UUID,
     reviewed_at  TIMESTAMPTZ
 );
 

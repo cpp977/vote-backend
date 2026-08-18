@@ -59,7 +59,7 @@ void JwtAuthFilter::doFilter(const HttpRequestPtr& req,
   }
 
   // Store user_id in request attributes for downstream handlers.
-  // Handle missing or non-numeric sub claim gracefully.
+  // Handle missing or non-string sub claim gracefully.
   if (!claims.isMember("sub") || claims["sub"].isNull()) {
     // Token is valid but has no sub claim - still allow access
     // Downstream handlers can check for user_id attribute presence
@@ -67,14 +67,8 @@ void JwtAuthFilter::doFilter(const HttpRequestPtr& req,
     return;
   }
 
-  try {
-    int64_t user_id = std::stoll(claims["sub"].asString());
-    req->attributes()->insert("user_id", user_id);
-  } catch (const std::exception&) {
-    // Non-numeric sub claim - still allow access without user_id
-    nextCb();
-    return;
-  }
+  std::string user_id = claims["sub"].asString();
+  req->attributes()->insert("user_id", user_id);
 
   // Check if user is active
   if (!claims.isMember("is_active") || claims["is_active"].isNull() ||

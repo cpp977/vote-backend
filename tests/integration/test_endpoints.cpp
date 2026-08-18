@@ -372,7 +372,7 @@ TEST_CASE("Admin only endpoint lists all usernames") {
     CHECK(resp.json_body[i].is_object());
     CHECK(resp.json_body[i].contains("id"));
     CHECK(resp.json_body[i].contains("username"));
-    CHECK(resp.json_body[i]["id"].is_number());
+    CHECK(resp.json_body[i]["id"].is_string());
     CHECK(resp.json_body[i]["username"].is_string());
     CHECK(!resp.json_body[i]["username"].empty());
   }
@@ -406,7 +406,7 @@ TEST_CASE("Admin endpoint returns usernames and IDs, no sensitive data") {
     CHECK(resp.json_body[i].is_object());
     CHECK(resp.json_body[i].contains("id"));
     CHECK(resp.json_body[i].contains("username"));
-    CHECK(resp.json_body[i]["id"].is_number());
+    CHECK(resp.json_body[i]["id"].is_string());
     CHECK(resp.json_body[i]["username"].is_string());
     CHECK(!resp.json_body[i]["username"].empty());
     // Verify that sensitive fields (email, password_hash, etc.) are not exposed
@@ -424,10 +424,11 @@ TEST_CASE(
   // Login as an admin user
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  // Get Admin user ID from the seed data (Admin has id=1)
-  auto resp =
-      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/1", "",
-                                 "application/json", admin_token);
+  // Get Jim's UUID from the seed data
+  auto jimId = test_helpers::get_userid("Jim");
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/users/" + jimId, "",
+                                         "application/json", admin_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_object());
 
@@ -440,7 +441,7 @@ TEST_CASE(
   }
 
   // Verify field types
-  CHECK(resp.json_body["id"].is_number());
+  CHECK(resp.json_body["id"].is_string());
   CHECK(resp.json_body["username"].is_string());
   CHECK(resp.json_body["email"].is_string());
   CHECK(resp.json_body["birth_year"].is_number());
@@ -465,9 +466,10 @@ TEST_CASE("Admin endpoint gets non-existent user by ID returns 404") {
   // Login as an admin user
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  auto resp =
-      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/99999",
-                                 "", "application/json", admin_token);
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/admin/users/00000000-0000-0000-0000-000000000000", "",
+      "application/json", admin_token);
   CHECK(resp.status == 404);
   CHECK(resp.json_body.contains("error"));
 }
@@ -476,10 +478,11 @@ TEST_CASE("Admin endpoint gets regular user by ID returns complete data") {
   // Login as an admin user
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  // Get Jim user (id=2 from seed data)
-  auto resp =
-      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/2", "",
-                                 "application/json", admin_token);
+  // Get Jim's UUID (seed user)
+  auto jimId = test_helpers::get_userid("Jim");
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/users/" + jimId, "",
+                                         "application/json", admin_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_object());
 
@@ -496,21 +499,23 @@ TEST_CASE("Admin endpoint gets regular user by ID returns complete data") {
   CHECK(resp.json_body.contains("is_active"));
   CHECK_FALSE(resp.json_body.contains("password_hash"));
 
-  // Verify Admin's data from seed data
-  CHECK(resp.json_body["username"] == "Admin");
-  CHECK(resp.json_body["email"] == "admin@example.com");
-  CHECK(resp.json_body["gender"] == "w");
-  CHECK(resp.json_body["is_admin"] == true);
+  // Verify Jim's data from seed data (this is a regular user, not admin)
+  CHECK(resp.json_body["username"] == "Jim");
+  CHECK(resp.json_body["email"] == "jim@example.com");
+  CHECK(resp.json_body["gender"] == "m");
+  CHECK(resp.json_body["is_admin"] == false);
 }
 
 TEST_CASE("Admin endpoint requires admin privileges for single user access") {
   // Login as a non-admin user (Jim / 12345678 from seed data)
   auto user_token =
       test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // Get Jim's UUID to use in the URL
+  auto jimId = test_helpers::get_userid("Jim");
   // This user should NOT have access to the admin endpoint
-  auto resp =
-      test_helpers::http_request("GET", "127.0.0.1", 8848, "/admin/users/1", "",
-                                 "application/json", user_token);
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                         "/admin/users/" + jimId, "",
+                                         "application/json", user_token);
   // Should return 403 Forbidden as per AdminAuthFilter
   CHECK(resp.status == 403);
   CHECK(resp.json_body.contains("error"));
@@ -525,13 +530,15 @@ TEST_CASE(
   // Login as an admin user
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  // User 1 (Jim) should be active from seed data
+  // Get Jim's UUID - Jim should be active from seed data
+  auto jimId = test_helpers::get_userid("Jim");
   auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/1/inactive", "",
-                                         "application/json", admin_token);
+                                         "/admin/users/" + jimId + "/inactive",
+                                         "", "application/json", admin_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.contains("id"));
-  CHECK(resp.json_body["id"] == 1);
+  CHECK(resp.json_body["id"].is_string());
+  CHECK(resp.json_body["id"] == jimId);
   CHECK(resp.json_body.contains("is_active"));
   CHECK(resp.json_body["is_active"] == false);
   CHECK(resp.json_body.contains("message"));
@@ -542,14 +549,17 @@ TEST_CASE("Admin endpoint sets user active (POST /admin/users/{id}/active)") {
   // First, we need to set a user inactive (User 2 / Jim)
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+  // Get Jim's UUID
+  auto jimId = test_helpers::get_userid("Jim");
 
   // Now, set the user back to active
   auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/1/active", "",
-                                         "application/json", admin_token);
+                                         "/admin/users/" + jimId + "/active",
+                                         "", "application/json", admin_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.contains("id"));
-  CHECK(resp.json_body["id"] == 1);
+  CHECK(resp.json_body["id"].is_string());
+  CHECK(resp.json_body["id"] == jimId);
   CHECK(resp.json_body.contains("is_active"));
   CHECK(resp.json_body["is_active"] == true);
   CHECK(resp.json_body.contains("message"));
@@ -559,9 +569,10 @@ TEST_CASE("Admin endpoint sets user active (POST /admin/users/{id}/active)") {
 TEST_CASE("Admin endpoint sets non-existent user inactive returns 404") {
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/99999/inactive", "",
-                                         "application/json", admin_token);
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/users/00000000-0000-0000-0000-000000000000/inactive", "",
+      "application/json", admin_token);
   CHECK(resp.status == 404);
   CHECK(resp.json_body.contains("error"));
 }
@@ -569,9 +580,10 @@ TEST_CASE("Admin endpoint sets non-existent user inactive returns 404") {
 TEST_CASE("Admin endpoint sets non-existent user active returns 404") {
   auto admin_token =
       test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
-  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/99999/active", "",
-                                         "application/json", admin_token);
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/users/00000000-0000-0000-0000-000000000000/active", "",
+      "application/json", admin_token);
   CHECK(resp.status == 404);
   CHECK(resp.json_body.contains("error"));
 }
@@ -580,10 +592,12 @@ TEST_CASE("Non-admin user cannot set user inactive") {
   // Login as a non-admin user (Jim / 12345678 from seed data)
   auto user_token =
       test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  // Get another user's UUID to attempt modifying
+  auto adminId = test_helpers::get_userid("Admin");
   // This user should NOT have access to the admin endpoint
-  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/2/inactive", "",
-                                         "application/json", user_token);
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/admin/users/" + adminId + "/inactive", "",
+      "application/json", user_token);
   // Should return 403 Forbidden as per AdminAuthFilter
   CHECK(resp.status == 403);
   CHECK(resp.json_body.contains("error"));
@@ -593,11 +607,13 @@ TEST_CASE("Inactive user cannot set user active") {
   // Login as the inactive user from seed data
   auto inactive_token =
       test_helpers::login_only("127.0.0.1", 8848, "InactiveUser", "12345678");
+  // Get Admin's UUID to attempt modifying
+  auto adminId = test_helpers::get_userid("Admin");
 
   // This inactive user should NOT have access to the admin endpoint
-  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                         "/admin/users/2/active", "",
-                                         "application/json", inactive_token);
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/admin/users/" + adminId + "/active", "",
+      "application/json", inactive_token);
   // Should return 423 Locked due to AdminAuthFilter checking is_active
   CHECK(resp.status == 423);
   CHECK(resp.json_body.contains("error"));
@@ -2267,7 +2283,7 @@ TEST_CASE("User can delete their own account (204 No Content)") {
   auto me_resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/me", "",
                                             "application/json", user_token);
   CHECK(me_resp.status == 200);
-  int64_t user_id = me_resp.json_body["id"].get<int64_t>();
+  std::string user_id = me_resp.json_body["id"].get<std::string>();
 
   // Delete the account.
   auto del_resp = test_helpers::http_request("DELETE", "127.0.0.1", 8848,

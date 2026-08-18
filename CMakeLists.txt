@@ -16,7 +16,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(unofficial-argon2 CONFIG REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
-# Boost is needed for integration tests (Beast & system)
+# Boost is needed for integration tests (Beast, system & uuid)
 find_package(Boost COMPONENTS system REQUIRED)
 
 set(
@@ -41,7 +41,7 @@ set(
 
 # main target
 add_executable(main src/main.cpp ${VOTE_BACKEND_SOURCES})
-target_link_libraries(main PRIVATE Drogon::Drogon fmt::fmt-header-only unofficial::argon2::libargon2 jwt-cpp::jwt-cpp OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(main PRIVATE Drogon::Drogon fmt::fmt-header-only unofficial::argon2::libargon2 jwt-cpp::jwt-cpp OpenSSL::SSL OpenSSL::Crypto Boost::boost)
 target_include_directories(main PRIVATE include)
 set_property(TARGET main PROPERTY CXX_STANDARD 23)
 
@@ -74,6 +74,7 @@ target_link_libraries(vote_backend_tests PRIVATE
     jwt-cpp::jwt-cpp
     fmt::fmt-header-only
     unofficial::argon2::libargon2
+    Boost::boost
 )
 target_include_directories(vote_backend_tests PRIVATE include)
 set_property(TARGET vote_backend_tests PROPERTY CXX_STANDARD 23)

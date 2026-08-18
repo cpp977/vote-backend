@@ -59,7 +59,7 @@ class Users
     static const std::string tableName;
     static const bool hasPrimaryKey;
     static const std::string primaryKeyName;
-    using PrimaryKeyType = int64_t;
+    using PrimaryKeyType = std::string;
     const PrimaryKeyType &getPrimaryKey() const;
 
     explicit Users(const drogon::orm::Row &r, const ssize_t indexOffset = 0) noexcept;
@@ -76,9 +76,9 @@ class Users
                           bool isForCreation);
 
     /**  For column id  */
-    const int64_t &getValueOfId() const noexcept;
-    const std::shared_ptr<int64_t> &getId() const noexcept;
-    void setId(const int64_t &pId) noexcept;
+    const std::string &getValueOfId() const noexcept;
+    const std::shared_ptr<std::string> &getId() const noexcept;
+    void setId(const std::string &pId) noexcept;
 
     /**  For column username  */
     const std::string &getValueOfUsername() const noexcept;
@@ -150,8 +150,8 @@ class Users
     void outputArgs(drogon::orm::internal::SqlBinder &binder) const;
     const std::vector<std::string> updateColumns() const;
     void updateArgs(drogon::orm::internal::SqlBinder &binder) const;
-    void updateId(const uint64_t id);
-    std::shared_ptr<int64_t> id_;
+    void updateId(const std::string &id);
+    std::shared_ptr<std::string> id_;
     std::shared_ptr<std::string> username_;
     std::shared_ptr<std::string> email_;
     std::shared_ptr<std::string> passwordHash_;

@@ -107,13 +107,13 @@ UPDATE questions SET min_age = 21 WHERE id IN (7, 9);
 --   3. A used token (used-reset-token) -- used to test the "already used" check.
 -- ---------------------------------------------------------------------------
 INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
-VALUES (1, '34d5d7ef743781a981a2efa15be22a860a4a792fd27595a7d70b72e697d88372',
+VALUES ((SELECT id FROM users WHERE username = 'Jim'), '34d5d7ef743781a981a2efa15be22a860a4a792fd27595a7d70b72e697d88372',
         NOW() + INTERVAL '1 hour', FALSE, 0);
 
 INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
-VALUES (1, '5bb79ac95be343e8bb144fc1d2d97ca3703a3ef41f5a91f28c301ec62401e9f4',
+VALUES ((SELECT id FROM users WHERE username = 'Jim'), '5bb79ac95be343e8bb144fc1d2d97ca3703a3ef41f5a91f28c301ec62401e9f4',
         NOW() - INTERVAL '1 hour', FALSE, 0);
 
 INSERT INTO password_resets (user_id, token_hash, expires_at, used, attempt_count)
-VALUES (1, '8205601e8152da142931880206bcb4e93ed22ee960be08ea3f19adf76fcb47e1',
+VALUES ((SELECT id FROM users WHERE username = 'Jim'), '8205601e8152da142931880206bcb4e93ed22ee960be08ea3f19adf76fcb47e1',
         NOW() + INTERVAL '1 hour', TRUE, 0);

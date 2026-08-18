@@ -73,12 +73,8 @@ void AdminAuthFilter::doFilter(const HttpRequestPtr& req,
 
   // 4. Expose identity to downstream handlers (mirrors JwtAuthFilter).
   if (claims.isMember("sub") && !claims["sub"].isNull()) {
-    try {
-      int64_t user_id = std::stoll(claims["sub"].asString());
-      req->attributes()->insert("user_id", user_id);
-    } catch (const std::exception&) {
-      // Non-numeric sub claim - still allow access without user_id attribute.
-    }
+    std::string user_id = claims["sub"].asString();
+    req->attributes()->insert("user_id", user_id);
   }
   req->attributes()->insert("is_admin", true);
 
