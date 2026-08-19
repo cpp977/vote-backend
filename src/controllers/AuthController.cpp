@@ -635,7 +635,7 @@ void AuthController::login(const HttpRequestPtr& req,
 
         db->execSqlAsync(
             "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) "
-            "VALUES ($1, $2, NOW() + INTERVAL '7 days')",
+            "VALUES ($1::uuid, $2, NOW() + INTERVAL '7 days')",
             [cb, access_token, refresh_token](const drogon::orm::Result&) {
               Json::Value resp;
               resp["access_token"] = access_token;
