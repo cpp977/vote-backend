@@ -19,6 +19,7 @@
 #include <trantor/utils/Logger.h>
 #include <json/json.h>
 #include <string>
+#include <array>
 #include <string_view>
 #include <memory>
 #include <vector>
@@ -43,6 +44,60 @@ class Categories;
 class Languages;
 class UserAnswers;
 
+/// C++ mirror of the PostgreSQL enum type special_category_type.
+///
+/// The enumerator order matches the database enum definition, and
+/// specialCategoryToString()/specialCategoryFromString() map between the
+/// enumerators and their database labels.
+enum class SpecialCategoryType {
+  none,
+  racial_or_ethnic_origin,
+  political_opinion,
+  religious_or_philosophical_belief,
+  trade_union_membership,
+  genetic_data,
+  biometric_data,
+  health,
+  sex_life_or_orientation,
+  criminal_convictions
+};
+
+/// Database labels of the special_category_type enumerators, indexed by the
+/// enumerator's underlying value.
+inline constexpr std::array<const char *, 10> kSpecialCategoryLabels = {
+    "none",
+    "racial_or_ethnic_origin",
+    "political_opinion",
+    "religious_or_philosophical_belief",
+    "trade_union_membership",
+    "genetic_data",
+    "biometric_data",
+    "health",
+    "sex_life_or_orientation",
+    "criminal_convictions"};
+
+/// Returns the database label of @p value. Unknown enumerators (which cannot
+/// occur for values read from the database) are mapped to "none".
+inline std::string specialCategoryToString(SpecialCategoryType value) noexcept {
+  const auto index = static_cast<std::size_t>(value);
+  if (index >= kSpecialCategoryLabels.size()) {
+    return "none";
+  }
+  return kSpecialCategoryLabels[index];
+}
+
+/// Parses a database label into its enumerator. Unrecognized labels (which
+/// cannot occur for values stored in the enum column) map to none.
+inline SpecialCategoryType specialCategoryFromString(
+    const std::string &label) noexcept {
+  for (std::size_t i = 0; i < kSpecialCategoryLabels.size(); ++i) {
+    if (label == kSpecialCategoryLabels[i]) {
+      return static_cast<SpecialCategoryType>(i);
+    }
+  }
+  return SpecialCategoryType::none;
+}
+
 class Questions
 {
   public:
@@ -54,6 +109,7 @@ class Questions
         static const std::string _language;
         static const std::string _min_age;
         static const std::string _created_at;
+        static const std::string _special_category;
     };
 
     static const int primaryKeyNumber;
@@ -155,8 +211,16 @@ class Questions
     ///Set the value of the column created_at
     void setCreatedAt(const ::trantor::Date &pCreatedAt) noexcept;
 
+    /**  For column special_category  */
+    ///Get the value of the column special_category, returns the default value if the column is null
+    const SpecialCategoryType &getValueOfSpecialCategory() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<SpecialCategoryType> &getSpecialCategory() const noexcept;
+    ///Set the value of the column special_category
+    void setSpecialCategory(const SpecialCategoryType &pSpecialCategory) noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 6;  }
+
+    static size_t getColumnNumber() noexcept {  return 7;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -200,6 +264,7 @@ class Questions
     std::shared_ptr<std::string> language_;
     std::shared_ptr<int32_t> minAge_;
     std::shared_ptr<::trantor::Date> createdAt_;
+    std::shared_ptr<SpecialCategoryType> specialCategory_;
     struct MetaData
     {
         const std::string colName_;
@@ -211,7 +276,7 @@ class Questions
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[6]={ false };
+    bool dirtyFlag_[7]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -258,6 +323,12 @@ class Questions
         {
             needSelection=true;
         }
+        sql += "special_category,";
+        ++parametersCount;
+        if(!dirtyFlag_[6])
+        {
+            needSelection=true;
+        }
         needSelection=true;
         if(parametersCount > 0)
         {
@@ -296,6 +367,15 @@ class Questions
             sql +="default,";
         }
         if(dirtyFlag_[5])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[6])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

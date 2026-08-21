@@ -1382,6 +1382,99 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
+// POST /questions/{id}/answer — consent flow for special-category questions
+//
+// Question 8 is flagged with special_category = 'health' in the test data, so
+// answering it requires the optional boolean request parameter
+// special_category_consent. For regular questions the parameter is ignored.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AnswerQuestion rejects special-category question without consent") {
+  // Without the consent parameter.
+  nlohmann::json body;
+  body["answer_id"] = 32;  // belongs to question 8
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/8/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+
+  // An explicit false consent flag is equally insufficient.
+  nlohmann::json declined;
+  declined["answer_id"] = 32;
+  declined["special_category_consent"] = false;
+  auto resp_declined = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/8/answer", declined.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_declined.status == 400);
+  CHECK(resp_declined.json_body.contains("error"));
+
+  // A non-boolean value is rejected as malformed input.
+  nlohmann::json malformed;
+  malformed["answer_id"] = 32;
+  malformed["special_category_consent"] = "yes";
+  auto resp_malformed = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/8/answer", malformed.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp_malformed.status == 400);
+  CHECK(resp_malformed.json_body.contains("error"));
+}
+
+TEST_CASE("AnswerQuestion accepts special-category question with consent") {
+  // With explicit consent the answer succeeds. The refusals above do not
+  // consume the per-user answer slot, so this must still be a fresh insert.
+  nlohmann::json body;
+  body["answer_id"] = 32;  // belongs to question 8
+  body["special_category_consent"] = true;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/8/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 201);
+  CHECK(resp.json_body["question_id"] == 8);
+  CHECK(resp.json_body["answer_id"] == 32);
+}
+
+TEST_CASE("AnswerQuestion ignores consent parameter for regular questions") {
+  // Question 9 is not flagged with a special category: the consent parameter
+  // is accepted but ignored entirely (no error, no consent recording).
+  nlohmann::json body;
+  body["answer_id"] = 37;  // belongs to question 9
+  body["special_category_consent"] = true;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/9/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 201);
+  CHECK(resp.json_body["question_id"] == 9);
+  CHECK(resp.json_body["answer_id"] == 37);
+}
+
+// ---------------------------------------------------------------------------
+// GET /questions/{id} — surfaces the special_category column so clients can
+// ask for consent before answering a flagged question.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("GetOne returns the special_category of a question") {
+  // Question 8 is flagged with 'health' in the seed data; regular questions
+  // carry the default 'none'.
+  auto resp_special = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/8", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp_special.status == 200);
+  CHECK(resp_special.json_body["special_category"] == "health");
+  CHECK(resp_special.json_body["text"] ==
+        "Was ist Ihr hauptsächliches Verkehrsmittel?");
+
+  auto resp_regular = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/1", "", "application/json",
+      global_fixture.access_token);
+  CHECK(resp_regular.status == 200);
+  CHECK(resp_regular.json_body["special_category"] == "none");
+}
+
+// ---------------------------------------------------------------------------
 // GET /categories  (category language column added, mirroring questions)
 // ---------------------------------------------------------------------------
 

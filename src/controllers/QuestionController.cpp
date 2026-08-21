@@ -47,6 +47,7 @@ Json::Value questionToJson(const drogon::orm::Row& row) {
   q["min_age"] =
       Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
   q["created_at"] = row["created_at"].as<std::string>();
+  q["special_category"] = row["special_category"].as<std::string>();
   if (!row["submission_status"].isNull()) {
     q["submission_status"] = row["submission_status"].as<std::string>();
   }
@@ -791,6 +792,22 @@ void QuestionController::answerQuestion(
   }
   int64_t answer_id = (*jsonPtr)["answer_id"].asInt64();
 
+  // Optional consent flag. It is only meaningful for questions flagged with a
+  // special category (see below); for regular questions it is ignored
+  // entirely.
+  bool special_category_consent = false;
+  if (jsonPtr->isMember("special_category_consent")) {
+    if (!(*jsonPtr)["special_category_consent"].isBool()) {
+      Json::Value err;
+      err["error"] = "Field 'special_category_consent' must be a boolean";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+    special_category_consent = (*jsonPtr)["special_category_consent"].asBool();
+  }
+
   auto dbClient = app().getDbClient();
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
@@ -847,8 +864,8 @@ void QuestionController::answerQuestion(
         // Only *approved* questions can be answered. Pending/rejected
         // submissions must not be reachable for answering; 404 keeps their
         // existence hidden.
-        *dbClient << "SELECT submission_status FROM questions WHERE id = "
-                     "$1::bigint"
+        *dbClient << "SELECT submission_status, special_category FROM "
+                     "questions WHERE id = $1::bigint"
                   << qid >>
             [=](const Result& r) {
               if (r.empty() ||
@@ -860,6 +877,24 @@ void QuestionController::answerQuestion(
                 (*callbackPtr)(resp);
                 return;
               }
+
+              // Questions flagged with a special category (any value other
+              // than 'none') may only be answered after explicit user
+              // consent; for regular questions the consent parameter is
+              // ignored entirely.
+              const bool special_flagged =
+                  specialCategoryFromString(
+                      r[0]["special_category"].as<std::string>()) !=
+                  SpecialCategoryType::none;
+              if (special_flagged && !special_category_consent) {
+                Json::Value err;
+                err["error"] = "Consent is required to answer this question";
+                auto resp = HttpResponse::newHttpJsonResponse(err);
+                resp->setStatusCode(k400BadRequest);
+                (*callbackPtr)(resp);
+                return;
+              }
+              const bool record_consent = special_flagged;
 
               // Perform both inserts atomically so a failure leaves no
               // half-written state:
@@ -880,12 +915,25 @@ void QuestionController::answerQuestion(
                       return;
                     }
                     auto cfg = load_hmac_config();
-                    *trans << "INSERT INTO question_user (question_id, "
-                              "hash_user_id, key_version) "
-                              "VALUES ($1::bigint, $2::text, $3::smallint) "
-                              "ON CONFLICT (question_id, hash_user_id) DO "
-                              "NOTHING"
-                           << qid << hash_user_id << cfg.hmac_key_version >>
+                    // When the question carries a special category the
+                    // user's consent timestamp is recorded alongside the
+                    // anonymous hash.
+                    std::string qu_insert_sql =
+                        "INSERT INTO question_user (question_id, "
+                        "hash_user_id, key_version) "
+                        "VALUES ($1::bigint, $2::text, $3::smallint) "
+                        "ON CONFLICT (question_id, hash_user_id) DO NOTHING";
+                    if (record_consent) {
+                      qu_insert_sql =
+                          "INSERT INTO question_user (question_id, "
+                          "hash_user_id, key_version, consent_given_at) "
+                          "VALUES ($1::bigint, $2::text, $3::smallint, "
+                          "NOW()) "
+                          "ON CONFLICT (question_id, hash_user_id) DO "
+                          "NOTHING";
+                    }
+                    *trans << qu_insert_sql << qid << hash_user_id
+                           << cfg.hmac_key_version >>
                         [=](const Result& r) {
                           if (r.affectedRows() == 0) {
                             // The user has already answered this question.
@@ -1368,7 +1416,7 @@ void QuestionController::getOne(
 
   // Public endpoint: only approved questions are visible.
   *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
-               "submission_status, submitted_by "
+               "special_category, submission_status, submitted_by "
                "FROM questions "
                "WHERE id = $1::bigint AND submission_status = 'approved'"
             << static_cast<int64_t>(questionId) >>
@@ -1403,7 +1451,7 @@ void QuestionController::get(
   // Public endpoint: only approved questions are visible.
   std::string sql =
       "SELECT id, text, category_id, language, min_age, created_at, "
-      "submission_status, submitted_by "
+      "special_category, submission_status, submitted_by "
       "FROM questions "
       "WHERE submission_status = 'approved'";
 
@@ -1624,7 +1672,7 @@ void QuestionController::submitQuestion(
               "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, "
               "'pending', $5::uuid) "
               "RETURNING id, text, category_id, language, min_age, "
-              "created_at, submission_status, submitted_by"
+              "created_at, special_category, submission_status, submitted_by"
            << text << category_id << language << min_age << user_id >>
         [=](const Result& r) {
           const int64_t new_qid = r[0]["id"].as<long long>();

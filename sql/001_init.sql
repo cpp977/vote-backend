@@ -24,6 +24,22 @@ CREATE TABLE categories (
 -- Unique constraint so the same category name can appear only once per language
 CREATE UNIQUE INDEX categories_name_lang_unique ON categories (name, language);
 
+-- Special category for questions that need special handling (GDPR Article 9
+-- special categories of personal data) and possibly explicit user consent
+-- before answering. 'none' marks regular questions.
+CREATE TYPE special_category_type AS ENUM (
+    'none',
+    'racial_or_ethnic_origin',
+    'political_opinion',
+    'religious_or_philosophical_belief',
+    'trade_union_membership',
+    'genetic_data',
+    'biometric_data',
+    'health',
+    'sex_life_or_orientation',
+    'criminal_convictions'
+);
+
 CREATE TABLE questions (
     id BIGSERIAL PRIMARY KEY,
     text TEXT NOT NULL,
@@ -31,6 +47,7 @@ CREATE TABLE questions (
     language CHAR(2) NOT NULL REFERENCES languages(code) ON DELETE RESTRICT,
     min_age INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    special_category special_category_type NOT NULL DEFAULT 'none',
     -- Submission / approval workflow (Option B):
     -- New questions from regular users are inserted with submission_status =
     -- 'pending' and only become visible to the public once an admin sets them
@@ -93,5 +110,8 @@ CREATE TABLE question_user (
     hash_user_id TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     key_version SMALLINT NOT NULL DEFAULT 1,
+    -- Timestamp of when the (anonymized) user gave consent to answer a
+    -- question flagged with a special_category; NULL until consent was given.
+    consent_given_at TIMESTAMPTZ NULL,
     PRIMARY KEY (question_id, hash_user_id)
 );

@@ -26,6 +26,7 @@ const std::string Questions::Cols::_category_id = "\"category_id\"";
 const std::string Questions::Cols::_language = "\"language\"";
 const std::string Questions::Cols::_min_age = "\"min_age\"";
 const std::string Questions::Cols::_created_at = "\"created_at\"";
+const std::string Questions::Cols::_special_category = "\"special_category\"";
 const std::string Questions::primaryKeyName = "id";
 const bool Questions::hasPrimaryKey = true;
 const std::string Questions::tableName = "\"questions\"";
@@ -36,7 +37,9 @@ const std::vector<typename Questions::MetaData> Questions::metaData_ = {
     {"category_id", "int64_t", "bigint", 8, 0, 0, 1},
     {"language", "std::string", "character", 0, 0, 0, 1},
     {"min_age", "int32_t", "integer", 4, 0, 0, 1},
-    {"created_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1}};
+    {"created_at", "::trantor::Date", "timestamp with time zone", 0, 0, 0, 1},
+    {"special_category", "SpecialCategoryType", "special_category_type", 0, 0,
+     0, 1}};
 const std::string& Questions::getColumnName(size_t index) noexcept(false) {
   assert(index < metaData_.size());
   return metaData_[index].colName_;
@@ -78,9 +81,13 @@ Questions::Questions(const Row& r, const ssize_t indexOffset) noexcept {
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
     }
+    if (!r["special_category"].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(r["special_category"].as<std::string>()));
+    }
   } else {
     size_t offset = (size_t)indexOffset;
-    if (offset + 6 > r.size()) {
+    if (offset + 7 > r.size()) {
       LOG_FATAL << "Invalid SQL result for this model";
       return;
     }
@@ -125,13 +132,18 @@ Questions::Questions(const Row& r, const ssize_t indexOffset) noexcept {
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
     }
+    index = offset + 6;
+    if (!r[index].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(r[index].as<std::string>()));
+    }
   }
 }
 
 Questions::Questions(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector) noexcept(false) {
-  if (pMasqueradingVector.size() != 6) {
+  if (pMasqueradingVector.size() != 7) {
     LOG_ERROR << "Bad masquerading vector";
     return;
   }
@@ -196,6 +208,14 @@ Questions::Questions(
         createdAt_ =
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
+    }
+  }
+  if (!pMasqueradingVector[6].empty() &&
+      pJson.isMember(pMasqueradingVector[6])) {
+    dirtyFlag_[6] = true;
+    if (!pJson[pMasqueradingVector[6]].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(pJson[pMasqueradingVector[6]].asString()));
     }
   }
 }
@@ -254,12 +274,19 @@ Questions::Questions(const Json::Value& pJson) noexcept(false) {
       }
     }
   }
+  if (pJson.isMember("special_category")) {
+    dirtyFlag_[6] = true;
+    if (!pJson["special_category"].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(pJson["special_category"].asString()));
+    }
+  }
 }
 
 void Questions::updateByMasqueradedJson(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector) noexcept(false) {
-  if (pMasqueradingVector.size() != 6) {
+  if (pMasqueradingVector.size() != 7) {
     LOG_ERROR << "Bad masquerading vector";
     return;
   }
@@ -325,6 +352,14 @@ void Questions::updateByMasqueradedJson(
       }
     }
   }
+  if (!pMasqueradingVector[6].empty() &&
+      pJson.isMember(pMasqueradingVector[6])) {
+    dirtyFlag_[6] = true;
+    if (!pJson[pMasqueradingVector[6]].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(pJson[pMasqueradingVector[6]].asString()));
+    }
+  }
 }
 
 void Questions::updateByJson(const Json::Value& pJson) noexcept(false) {
@@ -378,6 +413,13 @@ void Questions::updateByJson(const Json::Value& pJson) noexcept(false) {
         createdAt_ =
             std::make_shared<::trantor::Date>(t * 1000000 + decimalNum);
       }
+    }
+  }
+  if (pJson.isMember("special_category")) {
+    dirtyFlag_[6] = true;
+    if (!pJson["special_category"].isNull()) {
+      specialCategory_ = std::make_shared<SpecialCategoryType>(
+          specialCategoryFromString(pJson["special_category"].asString()));
     }
   }
 }
@@ -473,11 +515,28 @@ void Questions::setCreatedAt(const ::trantor::Date& pCreatedAt) noexcept {
   dirtyFlag_[5] = true;
 }
 
+const SpecialCategoryType& Questions::getValueOfSpecialCategory()
+    const noexcept {
+  static const SpecialCategoryType defaultValue = SpecialCategoryType();
+  if (specialCategory_) return *specialCategory_;
+  return defaultValue;
+}
+const std::shared_ptr<SpecialCategoryType>& Questions::getSpecialCategory()
+    const noexcept {
+  return specialCategory_;
+}
+void Questions::setSpecialCategory(
+    const SpecialCategoryType& pSpecialCategory) noexcept {
+  specialCategory_ = std::make_shared<SpecialCategoryType>(pSpecialCategory);
+  dirtyFlag_[6] = true;
+}
+
 void Questions::updateId(const uint64_t id) {}
 
 const std::vector<std::string>& Questions::insertColumns() noexcept {
   static const std::vector<std::string> inCols = {
-      "text", "category_id", "language", "min_age", "created_at"};
+      "text",    "category_id", "language",
+      "min_age", "created_at",  "special_category"};
   return inCols;
 }
 
@@ -517,6 +576,13 @@ void Questions::outputArgs(drogon::orm::internal::SqlBinder& binder) const {
       binder << nullptr;
     }
   }
+  if (dirtyFlag_[6]) {
+    if (getSpecialCategory()) {
+      binder << specialCategoryToString(*getSpecialCategory());
+    } else {
+      binder << nullptr;
+    }
+  }
 }
 
 const std::vector<std::string> Questions::updateColumns() const {
@@ -535,6 +601,9 @@ const std::vector<std::string> Questions::updateColumns() const {
   }
   if (dirtyFlag_[5]) {
     ret.push_back(getColumnName(5));
+  }
+  if (dirtyFlag_[6]) {
+    ret.push_back(getColumnName(6));
   }
   return ret;
 }
@@ -575,6 +644,13 @@ void Questions::updateArgs(drogon::orm::internal::SqlBinder& binder) const {
       binder << nullptr;
     }
   }
+  if (dirtyFlag_[6]) {
+    if (getSpecialCategory()) {
+      binder << specialCategoryToString(*getSpecialCategory());
+    } else {
+      binder << nullptr;
+    }
+  }
 }
 Json::Value Questions::toJson() const {
   Json::Value ret;
@@ -608,6 +684,12 @@ Json::Value Questions::toJson() const {
   } else {
     ret["created_at"] = Json::Value();
   }
+  if (getSpecialCategory()) {
+    ret["special_category"] =
+        specialCategoryToString(getValueOfSpecialCategory());
+  } else {
+    ret["special_category"] = Json::Value();
+  }
   return ret;
 }
 
@@ -616,7 +698,7 @@ std::string Questions::toString() const { return toJson().toStyledString(); }
 Json::Value Questions::toMasqueradedJson(
     const std::vector<std::string>& pMasqueradingVector) const {
   Json::Value ret;
-  if (pMasqueradingVector.size() == 6) {
+  if (pMasqueradingVector.size() == 7) {
     if (!pMasqueradingVector[0].empty()) {
       if (getId()) {
         ret[pMasqueradingVector[0]] = (Json::Int64)getValueOfId();
@@ -659,6 +741,14 @@ Json::Value Questions::toMasqueradedJson(
         ret[pMasqueradingVector[5]] = Json::Value();
       }
     }
+    if (!pMasqueradingVector[6].empty()) {
+      if (getSpecialCategory()) {
+        ret[pMasqueradingVector[6]] =
+            specialCategoryToString(getValueOfSpecialCategory());
+      } else {
+        ret[pMasqueradingVector[6]] = Json::Value();
+      }
+    }
     return ret;
   }
   LOG_ERROR << "Masquerade failed";
@@ -691,6 +781,12 @@ Json::Value Questions::toMasqueradedJson(
     ret["created_at"] = getCreatedAt()->toDbStringLocal();
   } else {
     ret["created_at"] = Json::Value();
+  }
+  if (getSpecialCategory()) {
+    ret["special_category"] =
+        specialCategoryToString(getValueOfSpecialCategory());
+  } else {
+    ret["special_category"] = Json::Value();
   }
   return ret;
 }
@@ -728,12 +824,17 @@ bool Questions::validateJsonForCreation(const Json::Value& pJson,
     if (!validJsonOfField(5, "created_at", pJson["created_at"], err, true))
       return false;
   }
+  if (pJson.isMember("special_category")) {
+    if (!validJsonOfField(6, "special_category", pJson["special_category"], err,
+                          true))
+      return false;
+  }
   return true;
 }
 bool Questions::validateMasqueradedJsonForCreation(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector, std::string& err) {
-  if (pMasqueradingVector.size() != 6) {
+  if (pMasqueradingVector.size() != 7) {
     err = "Bad masquerading vector";
     return false;
   }
@@ -789,6 +890,13 @@ bool Questions::validateMasqueradedJsonForCreation(
           return false;
       }
     }
+    if (!pMasqueradingVector[6].empty()) {
+      if (pJson.isMember(pMasqueradingVector[6])) {
+        if (!validJsonOfField(6, pMasqueradingVector[6],
+                              pJson[pMasqueradingVector[6]], err, true))
+          return false;
+      }
+    }
   } catch (const Json::LogicError& e) {
     err = e.what();
     return false;
@@ -822,12 +930,17 @@ bool Questions::validateJsonForUpdate(const Json::Value& pJson,
     if (!validJsonOfField(5, "created_at", pJson["created_at"], err, false))
       return false;
   }
+  if (pJson.isMember("special_category")) {
+    if (!validJsonOfField(6, "special_category", pJson["special_category"], err,
+                          false))
+      return false;
+  }
   return true;
 }
 bool Questions::validateMasqueradedJsonForUpdate(
     const Json::Value& pJson,
     const std::vector<std::string>& pMasqueradingVector, std::string& err) {
-  if (pMasqueradingVector.size() != 6) {
+  if (pMasqueradingVector.size() != 7) {
     err = "Bad masquerading vector";
     return false;
   }
@@ -870,6 +983,12 @@ bool Questions::validateMasqueradedJsonForUpdate(
         pJson.isMember(pMasqueradingVector[5])) {
       if (!validJsonOfField(5, pMasqueradingVector[5],
                             pJson[pMasqueradingVector[5]], err, false))
+        return false;
+    }
+    if (!pMasqueradingVector[6].empty() &&
+        pJson.isMember(pMasqueradingVector[6])) {
+      if (!validJsonOfField(6, pMasqueradingVector[6],
+                            pJson[pMasqueradingVector[6]], err, false))
         return false;
     }
   } catch (const Json::LogicError& e) {
@@ -937,6 +1056,16 @@ bool Questions::validJsonOfField(size_t index, const std::string& fieldName,
       }
       break;
     case 5:
+      if (pJson.isNull()) {
+        err = "The " + fieldName + " column cannot be null";
+        return false;
+      }
+      if (!pJson.isString()) {
+        err = "Type error in the " + fieldName + " field";
+        return false;
+      }
+      break;
+    case 6:
       if (pJson.isNull()) {
         err = "The " + fieldName + " column cannot be null";
         return false;

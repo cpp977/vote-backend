@@ -94,6 +94,14 @@ UPDATE questions SET min_age = 18 WHERE id IN (1, 3, 5);
 UPDATE questions SET min_age = 21 WHERE id IN (7, 9);
 
 -- ---------------------------------------------------------------------------
+-- Special-category flag for the consent flow of POST /questions/{id}/answer
+--   Table id 8 (the German transport question "Was ist Ihr hauptsächliches
+--   Verkehrsmittel?", answer ids 32..36) requires explicit user consent
+--   before it can be answered.
+-- ---------------------------------------------------------------------------
+UPDATE questions SET special_category = 'health' WHERE id = 8;
+
+-- ---------------------------------------------------------------------------
 -- Password reset tokens for integration tests.
 --
 -- SHA-256 hashes of well-known token strings:
