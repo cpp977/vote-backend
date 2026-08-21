@@ -37,6 +37,7 @@ set(
     src/utils/UserIdHash.cpp
     src/utils/ErrorResponse.cpp
     src/utils/Config.cpp
+    src/utils/BirthYearBucketer.cpp
 )
 
 # main target
@@ -58,6 +59,7 @@ set(
     tests/jwt_auth_filter_test.cpp
     tests/admin_auth_filter_test.cpp
     tests/UserIdHash_test.cpp
+    tests/BirthYearBucketer_test.cpp
 )
 
 set(

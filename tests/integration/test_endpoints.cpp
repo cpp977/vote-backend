@@ -1176,8 +1176,12 @@ TEST_CASE("RestSearchQuestions is accessible without authentication") {
 //
 // The backend inserts an anonymous hash of the user id (never the raw id)
 // together with the question_id into the `question_user` table, whose unique
-// primary key enforces that a user may answer a question only once. The
-// answer_option id ranges below come from the seed data (003_seed_data.sql):
+// primary key enforces that a user may answer a question only once.
+//
+// Tags are NOT accepted in the request body: they are derived server-side
+// from the authenticated user's profile in the users table (see the dedicated
+// test case below). The answer_option id ranges below come from the seed data
+// (003_seed_data.sql):
 //   question 1 -> answer ids  1..5
 //   question 2 -> answer ids  6..10
 //   question 3 -> answer ids 11..13
@@ -1187,10 +1191,10 @@ TEST_CASE("RestSearchQuestions is accessible without authentication") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("AnswerQuestion creates a new answer (201 Created)") {
-  // answer_id = 6 belongs to question 2.
+  // answer_id = 6 belongs to question 2. No tags are sent: they are derived
+  // from the user profile by the backend.
   nlohmann::json body;
   body["answer_id"] = 6;
-  body["tags"] = {{"gender", "m"}, {"age", 30}};
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/2/answer", body.dump(),
@@ -1236,7 +1240,9 @@ TEST_CASE(
 }
 
 TEST_CASE("AnswerQuestion without answer_id is 400") {
-  nlohmann::json body = {{"tags", {{"gender", "m"}}}};
+  // Tags are not part of the request contract anymore; an empty object is
+  // enough to trigger the missing-answer_id validation error.
+  nlohmann::json body = nlohmann::json::object();
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/6/answer", body.dump(),
@@ -1254,6 +1260,66 @@ TEST_CASE("AnswerQuestion requires authentication (401)") {
                                          "/questions/2/answer", body.dump(),
                                          "application/json", "");
   CHECK(resp.status == 401);
+}
+
+TEST_CASE(
+    "AnswerQuestion derives tags from the user profile and buckets "
+    "birth_year") {
+  // Tags are no longer accepted in the request body; they are derived from
+  // the users-table row of the authenticated user. The Admin seed user has
+  // birth_year=1985 and gender='w' (004_test_data.sql). The expected age
+  // bucket is computed at runtime so the test stays valid as time passes.
+  std::time_t now_time = std::time(nullptr);
+  std::tm tm_buf{};
+  localtime_r(&now_time, &tm_buf);
+  const int current_year = tm_buf.tm_year + 1900;
+  const int birth_year = 1985;
+  const int age = current_year - birth_year;
+  const int bucket_start = (age / 5) * 5;
+  const std::string expected_bucket =
+      fmt::format("{}-{}", bucket_start, bucket_start + 4);
+
+  // Question 7 ("Do you recycle regularly?") is not used by any other answer
+  // test; answer_id=27 is its first option ("Always").
+  nlohmann::json body;
+  body["answer_id"] = 27;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/7/answer", body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 201);
+  CHECK(resp.json_body["question_id"] == 7);
+  CHECK(resp.json_body["answer_id"] == 27);
+
+  // The raw birth year must never be stored as a tag.
+  auto resp_raw_year = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/7/stats?tagKey=birth_year&tagValue=1985", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_raw_year.status == 200);
+  CHECK(resp_raw_year.json_body.is_array());
+  CHECK(resp_raw_year.json_body.empty());
+
+  // The bucketed age range derived from the profile must be stored instead.
+  auto resp_age = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/7/stats?tagKey=age_bucket&tagValue=" + expected_bucket, "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_age.status == 200);
+  CHECK(resp_age.json_body.is_array());
+  CHECK(resp_age.json_body.size() == 1);
+  CHECK(resp_age.json_body[0]["answer_id"] == 27);
+  CHECK(resp_age.json_body[0]["count"] == 1);
+
+  // The gender tag must be derived from the profile as well ('w' for Admin).
+  auto resp_gender = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/7/stats?tagKey=gender&tagValue=w",
+      "", "application/json", global_fixture.access_token);
+  CHECK(resp_gender.status == 200);
+  CHECK(resp_gender.json_body.is_array());
+  CHECK(resp_gender.json_body.size() == 1);
+  CHECK(resp_gender.json_body[0]["answer_id"] == 27);
+  CHECK(resp_gender.json_body[0]["count"] == 1);
 }
 
 // ---------------------------------------------------------------------------

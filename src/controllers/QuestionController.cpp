@@ -19,6 +19,7 @@
 
 #include "vote-backend/models/AnswerOptions.hpp"
 #include "vote-backend/models/Questions.hpp"
+#include "vote-backend/utils/BirthYearBucketer.hpp"
 #include "vote-backend/utils/Config.hpp"
 #include "vote-backend/utils/UserIdHash.hpp"
 
@@ -720,14 +721,6 @@ void QuestionController::answerQuestion(
   }
   int64_t answer_id = (*jsonPtr)["answer_id"].asInt64();
 
-  // Optional tags object, persisted as jsonb.
-  std::string tags_json = "{}";
-  if (jsonPtr->isMember("tags") && (*jsonPtr)["tags"].isObject()) {
-    Json::StreamWriterBuilder builder;
-    builder["indentation"] = "";
-    tags_json = Json::writeString(builder, (*jsonPtr)["tags"]);
-  }
-
   auto dbClient = app().getDbClient();
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
@@ -741,121 +734,186 @@ void QuestionController::answerQuestion(
   std::string hash_user_id =
       vote_backend::utils::user_id_hasher().hash(user_id, qid);
 
-  // Only *approved* questions can be answered. Pending/rejected submissions
-  // must not be reachable for answering; 404 keeps their existence hidden.
-  *dbClient << "SELECT submission_status FROM questions WHERE id = $1::bigint"
-            << qid >>
-      [=](const Result& r) {
-        if (r.empty() ||
-            r[0]["submission_status"].as<std::string>() != "approved") {
+  // Tags are NOT accepted from the request body. They are derived from the
+  // authenticated user's profile in the users table: gender, nationality and
+  // the birth year. The birth year is normalized into a configurable
+  // age-bucket range (e.g. "25-29" for a 5-year bucket) so that the raw birth
+  // year is never stored — only the anonymized range.
+  dbClient->execSqlAsync(
+      "SELECT birth_year, gender, nationality "
+      "FROM users WHERE id = $1::uuid",
+      [=](const Result& profile) {
+        if (profile.empty()) {
+          // The token was valid but the user no longer exists.
           Json::Value err;
-          err["error"] = "Question not found";
+          err["error"] = "Unauthenticated";
           auto resp = HttpResponse::newHttpJsonResponse(err);
-          resp->setStatusCode(k404NotFound);
+          resp->setStatusCode(k401Unauthorized);
           (*callbackPtr)(resp);
           return;
         }
 
-        // Perform both inserts atomically so a failure leaves no half-written
-        // state:
-        //   - question_user insert enforces "one answer per user". We use
-        //     ON CONFLICT DO NOTHING and inspect the affected row count: a
-        //     count of 0 means the (question_id, hash_user_id) pair already
-        //     exists, i.e. the user has already answered.
-        //   - user_answers insert only happens if the answer option actually
-        //     belongs to the question.
-        dbClient->newTransactionAsync([=](const std::shared_ptr<
-                                          drogon::orm::Transaction>& trans) {
-          if (!trans) {
-            Json::Value err;
-            err["error"] = "database timeout";
-            auto resp = HttpResponse::newHttpJsonResponse(err);
-            resp->setStatusCode(k500InternalServerError);
-            (*callbackPtr)(resp);
-            return;
+        // Build the tags from the user's profile.
+        Json::Value tags_obj(Json::objectValue);
+        if (!profile[0]["gender"].isNull()) {
+          tags_obj["gender"] = profile[0]["gender"].as<std::string>();
+        }
+        if (!profile[0]["nationality"].isNull()) {
+          tags_obj["nationality"] = profile[0]["nationality"].as<std::string>();
+        }
+        if (!profile[0]["birth_year"].isNull()) {
+          int birth_year = profile[0]["birth_year"].as<int>();
+          auto bucket_cfg = load_age_bucket_config();
+          std::string bucket = vote_backend::utils::bucketBirthYear(
+              birth_year, bucket_cfg.bucket_size);
+          if (!bucket.empty()) {
+            tags_obj["age_bucket"] = bucket;
           }
-          auto cfg = load_hmac_config();
-          *trans << "INSERT INTO question_user (question_id, hash_user_id, "
-                    "key_version) "
-                    "VALUES ($1::bigint, $2::text, $3::smallint) "
-                    "ON CONFLICT (question_id, hash_user_id) DO NOTHING"
-                 << qid << hash_user_id << cfg.hmac_key_version >>
-              [=](const Result& r) {
-                if (r.affectedRows() == 0) {
-                  // The user has already answered this question.
-                  trans->rollback();
-                  Json::Value err;
-                  err["error"] = "You have already answered this question";
-                  auto resp = HttpResponse::newHttpJsonResponse(err);
-                  resp->setStatusCode(k409Conflict);
-                  (*callbackPtr)(resp);
-                  return;
-                }
-                *trans << "INSERT INTO user_answers (question_id, answer_id, "
-                          "tags) "
-                          "SELECT $1::bigint, $2::bigint, "
-                          "COALESCE($3::jsonb, '{}'::jsonb) "
-                          "WHERE EXISTS (SELECT 1 FROM answer_options ao "
-                          "WHERE ao.id = $2::bigint AND ao.question_id = "
-                          "$1::bigint) "
-                          "RETURNING id"
-                       << qid << answer_id << tags_json >>
-                    [=](const Result& r) {
-                      if (r.size() == 0) {
-                        // The answer option does not belong to this question.
-                        trans->rollback();
-                        Json::Value err;
-                        err["error"] =
-                            "answer_id does not belong to the given question";
-                        auto resp = HttpResponse::newHttpJsonResponse(err);
-                        resp->setStatusCode(k400BadRequest);
-                        (*callbackPtr)(resp);
-                        return;
-                      }
-                      Json::Value ret;
-                      ret["id"] =
-                          static_cast<Json::Int64>(r[0]["id"].as<long long>());
-                      ret["question_id"] = static_cast<Json::Int64>(qid);
-                      ret["answer_id"] = static_cast<Json::Int64>(answer_id);
-                      auto resp = HttpResponse::newHttpJsonResponse(ret);
-                      resp->setStatusCode(k201Created);
-                      trans->setCommitCallback(
-                          [=](bool) { (*callbackPtr)(resp); });
-                    } >>
-                    [=](const DrogonDbException& e) {
-                      trans->rollback();
-                      LOG_ERROR << fmt::format(
-                          "answerQuestion user_answers insert failed: {}",
-                          e.base().what());
+        }
+        Json::StreamWriterBuilder builder;
+        builder["indentation"] = "";
+        std::string tags_json = Json::writeString(builder, tags_obj);
+
+        // Only *approved* questions can be answered. Pending/rejected
+        // submissions must not be reachable for answering; 404 keeps their
+        // existence hidden.
+        *dbClient << "SELECT submission_status FROM questions WHERE id = "
+                     "$1::bigint"
+                  << qid >>
+            [=](const Result& r) {
+              if (r.empty() ||
+                  r[0]["submission_status"].as<std::string>() != "approved") {
+                Json::Value err;
+                err["error"] = "Question not found";
+                auto resp = HttpResponse::newHttpJsonResponse(err);
+                resp->setStatusCode(k404NotFound);
+                (*callbackPtr)(resp);
+                return;
+              }
+
+              // Perform both inserts atomically so a failure leaves no
+              // half-written state:
+              //   - question_user insert enforces "one answer per user". We
+              //     use ON CONFLICT DO NOTHING and inspect the affected row
+              //     count: a count of 0 means the (question_id, hash_user_id)
+              //     pair already exists, i.e. the user has already answered.
+              //   - user_answers insert only happens if the answer option
+              //     actually belongs to the question.
+              dbClient->newTransactionAsync(
+                  [=](const std::shared_ptr<drogon::orm::Transaction>& trans) {
+                    if (!trans) {
                       Json::Value err;
-                      err["error"] = "database error";
+                      err["error"] = "database timeout";
                       auto resp = HttpResponse::newHttpJsonResponse(err);
                       resp->setStatusCode(k500InternalServerError);
                       (*callbackPtr)(resp);
-                    };
-              } >>
-              [=](const DrogonDbException& e) {
-                trans->rollback();
+                      return;
+                    }
+                    auto cfg = load_hmac_config();
+                    *trans << "INSERT INTO question_user (question_id, "
+                              "hash_user_id, key_version) "
+                              "VALUES ($1::bigint, $2::text, $3::smallint) "
+                              "ON CONFLICT (question_id, hash_user_id) DO "
+                              "NOTHING"
+                           << qid << hash_user_id << cfg.hmac_key_version >>
+                        [=](const Result& r) {
+                          if (r.affectedRows() == 0) {
+                            // The user has already answered this question.
+                            trans->rollback();
+                            Json::Value err;
+                            err["error"] =
+                                "You have already answered this question";
+                            auto resp = HttpResponse::newHttpJsonResponse(err);
+                            resp->setStatusCode(k409Conflict);
+                            (*callbackPtr)(resp);
+                            return;
+                          }
+                          *trans << "INSERT INTO user_answers (question_id, "
+                                    "answer_id, tags) "
+                                    "SELECT $1::bigint, $2::bigint, "
+                                    "COALESCE($3::jsonb, '{}'::jsonb) "
+                                    "WHERE EXISTS (SELECT 1 FROM "
+                                    "answer_options ao "
+                                    "WHERE ao.id = $2::bigint AND "
+                                    "ao.question_id = $1::bigint) "
+                                    "RETURNING id"
+                                 << qid << answer_id << tags_json >>
+                              [=](const Result& r) {
+                                if (r.size() == 0) {
+                                  // The answer option does not belong to
+                                  // this question.
+                                  trans->rollback();
+                                  Json::Value err;
+                                  err["error"] =
+                                      "answer_id does not belong to the "
+                                      "given question";
+                                  auto resp =
+                                      HttpResponse::newHttpJsonResponse(err);
+                                  resp->setStatusCode(k400BadRequest);
+                                  (*callbackPtr)(resp);
+                                  return;
+                                }
+                                Json::Value ret;
+                                ret["id"] = static_cast<Json::Int64>(
+                                    r[0]["id"].as<long long>());
+                                ret["question_id"] =
+                                    static_cast<Json::Int64>(qid);
+                                ret["answer_id"] =
+                                    static_cast<Json::Int64>(answer_id);
+                                auto resp =
+                                    HttpResponse::newHttpJsonResponse(ret);
+                                resp->setStatusCode(k201Created);
+                                trans->setCommitCallback(
+                                    [=](bool) { (*callbackPtr)(resp); });
+                              } >>
+                              [=](const DrogonDbException& e) {
+                                trans->rollback();
+                                LOG_ERROR << fmt::format(
+                                    "answerQuestion user_answers insert "
+                                    "failed: {}",
+                                    e.base().what());
+                                Json::Value err;
+                                err["error"] = "database error";
+                                auto resp =
+                                    HttpResponse::newHttpJsonResponse(err);
+                                resp->setStatusCode(k500InternalServerError);
+                                (*callbackPtr)(resp);
+                              };
+                        } >>
+                        [=](const DrogonDbException& e) {
+                          trans->rollback();
+                          LOG_ERROR << fmt::format(
+                              "answerQuestion question_user insert failed: "
+                              "{}",
+                              e.base().what());
+                          Json::Value err;
+                          err["error"] = "database error";
+                          auto resp = HttpResponse::newHttpJsonResponse(err);
+                          resp->setStatusCode(k500InternalServerError);
+                          (*callbackPtr)(resp);
+                        };
+                  });  // end newTransactionAsync
+            }  // end status-check success lambda
+            >> [=](const DrogonDbException& e) {
                 LOG_ERROR << fmt::format(
-                    "answerQuestion question_user insert failed: {}",
-                    e.base().what());
+                    "answerQuestion status check failed: {}", e.base().what());
                 Json::Value err;
                 err["error"] = "database error";
                 auto resp = HttpResponse::newHttpJsonResponse(err);
                 resp->setStatusCode(k500InternalServerError);
                 (*callbackPtr)(resp);
               };
-        });  // end newTransactionAsync
-      }  // end status-check success lambda
-      >> [=](const DrogonDbException& e) {
-          LOG_ERROR << fmt::format("answerQuestion status check failed: {}",
-                                   e.base().what());
-          Json::Value err;
-          err["error"] = "database error";
-          auto resp = HttpResponse::newHttpJsonResponse(err);
-          resp->setStatusCode(k500InternalServerError);
-          (*callbackPtr)(resp);
-        };
+      },  // end profile-fetch success callback
+      [=](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("answerQuestion profile fetch failed: {}",
+                                 e.base().what());
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      },
+      user_id);
 }
 
 namespace {
