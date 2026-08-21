@@ -56,14 +56,14 @@ INSERT INTO user_answers (question_id, answer_id, tags)
 VALUES (1, 1, '{"gender": "m"}');
 
 INSERT INTO user_answers (question_id, answer_id, tags)
-VALUES (1, 1, '{"gender": "f"}');
+VALUES (1, 1, '{"gender": "w"}');
 
 INSERT INTO user_answers (question_id, answer_id, tags)
 VALUES (1, 2, '{"gender": "m"}');
 
 -- ---------------------------------------------------------------------------
 -- User answers for question 3 ("Do you have an own car?")
---   answer_id=11 ("Yes")            -> 2 votes with gender=m, 1 vote with gender=f
+--   answer_id=11 ("Yes")            -> 2 votes with gender=m, 1 vote with gender=w
 --   answer_id=12 ("No")             -> 1 vote with gender=m
 --   answer_id=13 ("I share one")     -> 0 votes
 -- ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ INSERT INTO user_answers (question_id, answer_id, tags)
 VALUES (3, 11, '{"gender": "m"}');
 
 INSERT INTO user_answers (question_id, answer_id, tags)
-VALUES (3, 11, '{"gender": "f"}');
+VALUES (3, 11, '{"gender": "w"}');
 
 INSERT INTO user_answers (question_id, answer_id, tags)
 VALUES (3, 12, '{"gender": "m"}');

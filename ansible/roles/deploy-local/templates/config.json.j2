@@ -46,6 +46,7 @@
   "password_reset_rate_limit_max_requests": {{ vote_backend_password_reset_rate_limit_max_requests | default(3) }},
   "allowed_origin": "{{ vote_backend_allowed_origin }}",
   "age_bucket_size": {{ vote_backend_age_bucket_size | default(5) }},
+  "stats_min_answers": {{ vote_backend_stats_min_answers | default(5) }},
   "plugins": [
     {
       "name": "drogon::plugin::AccessLogger",

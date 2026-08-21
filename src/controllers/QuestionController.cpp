@@ -12,6 +12,8 @@
 #include <json/json.h>
 #include <trantor/utils/Logger.h>
 
+#include <algorithm>
+#include <cctype>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -347,99 +349,167 @@ void QuestionController::getQuestionsByLanguage(
       language);
 }
 
+namespace {
+// Validates a tag filter value for the given tag key. The allowed keys mirror
+// exactly the tags the backend derives from the users table when an answer is
+// submitted: gender, nationality, and the birth year normalized into an
+// age-bucket range.
+bool isValidStatsTagValue(const std::string& key, const std::string& value) {
+  if (key == "gender") {
+    // Mirrors the CHECK constraint on users.gender.
+    return value == "m" || value == "w" || value == "d";
+  }
+  if (key == "nationality") {
+    // Mirrors users.nationality VARCHAR(100).
+    return !value.empty() && value.size() <= 100;
+  }
+  if (key == "age_bucket") {
+    // Bucket labels have the form "<start>-<end>" with non-negative integers.
+    const auto dash = value.find('-');
+    if (dash == std::string::npos || dash == 0 || dash + 1 >= value.size()) {
+      return false;
+    }
+    const std::string start = value.substr(0, dash);
+    const std::string end = value.substr(dash + 1);
+    const bool digits =
+        std::all_of(start.begin(), start.end(),
+                    [](char c) {
+                      return std::isdigit(static_cast<unsigned char>(c));
+                    }) &&
+        std::all_of(end.begin(), end.end(), [](char c) {
+          return std::isdigit(static_cast<unsigned char>(c));
+        });
+    return digits && std::stoll(start) <= std::stoll(end);
+  }
+  return false;
+}
+}  // namespace
+
 void QuestionController::getStats(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId) {
-  // Optional tag filtering via query parameters ?tagKey=...&tagValue=...
-  std::string tagKey = req->getParameter("tagKey");
-  std::string tagValue = req->getParameter("tagValue");
-  bool filterTags = !tagKey.empty() && !tagValue.empty();
-
-  // Build SQL. We use positional parameters ($1, $2, $3) for safety.
-  std::string sql =
-      "SELECT ao.id        AS answer_id, "
-      "       ao.text      AS answer_text, "
-      "       COUNT(ua.id) AS cnt "
-      "FROM user_answers ua "
-      "JOIN answer_options ao ON ua.answer_id = ao.id "
-      "WHERE ua.question_id = $1 "
-      "  AND (SELECT submission_status FROM questions WHERE id = $1) = "
-      "'approved'";
-  if (filterTags) {
-    // JSONB existence and equality operators.
-    sql += " AND ua.tags ? $2::text AND ua.tags->>$2 = $3";
+  // Optional tag filtering via individual query parameters, e.g.
+  // ?gender=m&age_bucket=25-29. Every parameter is optional and maps to one
+  // of the tags the backend derives from the users table when an answer is
+  // submitted; unknown query parameters are ignored, invalid values yield
+  // 400.
+  Json::Value tags_filter(Json::objectValue);
+  const auto add_tag_filter = [&](const char* param_name,
+                                  const char* tag_key) -> bool {
+    const std::string value = req->getParameter(param_name);
+    if (value.empty()) {
+      return true;  // parameter absent or empty: do not filter on this tag
+    }
+    if (!isValidStatsTagValue(tag_key, value)) {
+      Json::Value err;
+      err["error"] = fmt::format("Invalid value for tag filter '{}'", tag_key);
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k400BadRequest);
+      cb(resp);
+      return false;
+    }
+    tags_filter[tag_key] = value;
+    return true;
+  };
+  if (!add_tag_filter("gender", "gender") ||
+      !add_tag_filter("nationality", "nationality") ||
+      !add_tag_filter("age_bucket", "age_bucket")) {
+    return;
   }
-  sql += " GROUP BY ao.id, ao.text";
+  const bool filter_tags = !tags_filter.empty();
+
+  // Privacy threshold: statistics are reported as insufficient_data unless
+  // at least stats_min_answers matching answers exist (decided in the result
+  // handler based on the total returned by the query).
+  const auto stats_cfg = load_stats_config();
+
+  // NOTE: every placeholder is referenced exactly once — drogon's parameter
+  // binding cannot handle a placeholder appearing multiple times in the SQL
+  // text (libpq fails with "insufficient data left in message"). The
+  // no-filter case therefore binds '{}' instead of NULL: the empty object is
+  // contained in every object-shaped tags value, so it matches all answers.
+  // The totals CTE guarantees exactly one result row carrying the grand
+  // total of matching answers even when counts is empty; the LEFT JOIN then
+  // yields NULL answer columns for that row.
+  std::string sql =
+      "WITH counts AS ("
+      "  SELECT ao.id AS answer_id, ao.text AS answer_text, "
+      "         COUNT(ua.id) AS cnt "
+      "  FROM user_answers ua "
+      "  JOIN answer_options ao ON ua.answer_id = ao.id "
+      "  WHERE ua.question_id = $1 "
+      "    AND (SELECT submission_status FROM questions WHERE id = $1) = "
+      "'approved' "
+      "    AND ua.tags @> $2::jsonb "
+      "  GROUP BY ao.id, ao.text "
+      "), totals AS ("
+      "  SELECT COALESCE(SUM(cnt), 0)::bigint AS total FROM counts"
+      ") "
+      "SELECT t.total AS total_count, c.answer_id, c.answer_text, c.cnt "
+      "FROM totals t "
+      "LEFT JOIN counts c ON TRUE";
 
   auto dbClient = app().getDbClient();
-  if (filterTags) {
-    dbClient->execSqlAsync(
-        sql,
-        [cb](const Result& r) {
-          // Compute total votes.
-          long long total = 0;
-          for (size_t i = 0; i < r.size(); ++i)
-            total += r[i].at("cnt").as<long long>();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
 
-          Json::Value arr(Json::arrayValue);
-          for (size_t i = 0; i < r.size(); ++i) {
-            Json::Value obj;
-            obj["answer_id"] = Json::Value(
-                static_cast<Json::Int64>(r[i].at("answer_id").as<long long>()));
-            obj["answer_text"] =
-                Json::Value(r[i].at("answer_text").as<std::string>());
-            long long cnt = r[i].at("cnt").as<long long>();
-            obj["count"] = Json::Value(static_cast<Json::UInt64>(cnt));
-            double percent = total > 0 ? (static_cast<double>(cnt) * 100.0 /
-                                          static_cast<double>(total))
-                                       : 0.0;
-            obj["percent"] = Json::Value(percent);
-            arr.append(obj);
-          }
-          auto resp = HttpResponse::newHttpJsonResponse(arr);
-          cb(resp);
-        },
-        [cb](const DrogonDbException& e) {
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(e.base().what());
-          cb(resp);
-        },
-        static_cast<int64_t>(questionId), tagKey, tagValue);
-  } else {
-    dbClient->execSqlAsync(
-        sql,
-        [cb](const Result& r) {
-          long long total = 0;
-          for (size_t i = 0; i < r.size(); ++i)
-            total += r[i].at("cnt").as<long long>();
+  auto onResult = [callbackPtr,
+                   min_answers = stats_cfg.min_answers](const Result& r) {
+    // The first row always carries the grand total of matching answers; its
+    // answer columns are NULL when nothing matched.
+    const long long total = r[0]["total_count"].as<long long>();
+    const bool enough = static_cast<long long>(min_answers) <= total;
 
-          Json::Value arr(Json::arrayValue);
-          for (size_t i = 0; i < r.size(); ++i) {
-            Json::Value obj;
-            obj["answer_id"] =
-                Json::Value(Json::Int64(r[i].at("answer_id").as<long long>()));
-            obj["answer_text"] =
-                Json::Value(r[i].at("answer_text").as<std::string>());
-            long long cnt = r[i].at("cnt").as<long long>();
-            obj["count"] = Json::Value(Json::UInt64(cnt));
-            double percent = total > 0 ? (static_cast<double>(cnt) * 100.0 /
-                                          static_cast<double>(total))
-                                       : 0.0;
-            obj["percent"] = Json::Value(percent);
-            arr.append(obj);
-          }
-          auto resp = HttpResponse::newHttpJsonResponse(arr);
-          cb(resp);
-        },
-        [cb](const DrogonDbException& e) {
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(e.base().what());
-          cb(resp);
-        },
-        static_cast<int64_t>(questionId));
-  }
+    Json::Value ret;
+    ret["status"] = enough ? "ok" : "insufficient_data";
+    ret["message"] =
+        enough ? ""
+               : "Not enough responses to display statistics for this "
+                 "filter.";
+    Json::Value arr(Json::arrayValue);
+    if (enough) {
+      for (const auto& row : r) {
+        if (row["answer_id"].isNull()) {
+          continue;  // placeholder row from an empty counts CTE
+        }
+        Json::Value obj;
+        obj["answer_id"] = Json::Value(
+            static_cast<Json::Int64>(row.at("answer_id").as<long long>()));
+        obj["answer_text"] =
+            Json::Value(row.at("answer_text").as<std::string>());
+        long long cnt = row.at("cnt").as<long long>();
+        obj["count"] = Json::Value(static_cast<Json::UInt64>(cnt));
+        double percent = total > 0 ? (static_cast<double>(cnt) * 100.0 /
+                                      static_cast<double>(total))
+                                   : 0.0;
+        obj["percent"] = Json::Value(percent);
+        arr.append(obj);
+      }
+    }
+    ret["answers"] = arr;
+    (*callbackPtr)(HttpResponse::newHttpJsonResponse(ret));
+  };
+  auto onError = [callbackPtr](const DrogonDbException& e) {
+    LOG_ERROR << fmt::format("getStats DB error: {}", e.base().what());
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setStatusCode(k500InternalServerError);
+    resp->setBody(e.base().what());
+    (*callbackPtr)(resp);
+  };
+
+  // Without a filter, bind '{}' — the empty object is contained in every
+  // (object-shaped) tags value and therefore matches all answers. The
+  // question id is bound as int64_t: drogon sends integral parameters in
+  // binary format and Postgres infers $1 as bigint (question_id column), so
+  // a 4-byte int would truncate the Bind message ("insufficient data left
+  // in message").
+  Json::StreamWriterBuilder builder;
+  builder["indentation"] = "";
+  const std::string tags_json =
+      filter_tags ? Json::writeString(builder, tags_filter) : std::string("{}");
+  dbClient->execSqlAsync(sql, onResult, onError,
+                         static_cast<int64_t>(questionId), tags_json);
 }
 
 enum class FilterKind { Equal, GreaterEq, LessEq, ILike, InArray };

@@ -21,3 +21,13 @@ struct AgeBucketConfig {
 };
 
 AgeBucketConfig load_age_bucket_config();
+
+/// Configuration for the stats endpoint: aggregated results are only returned
+/// when at least `min_answers` matching answers exist (privacy threshold).
+struct StatsConfig {
+  /// Minimum number of matching answers required to return statistics
+  /// (default 5).
+  int min_answers{};
+};
+
+StatsConfig load_stats_config();

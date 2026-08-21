@@ -10,5 +10,6 @@
   "password_reset_max_attempts": 5,
   "password_reset_rate_limit_window_minutes": 15,
   "password_reset_rate_limit_max_requests": 3,
-  "age_bucket_size": 5
+  "age_bucket_size": 5,
+  "stats_min_answers": 1
 }

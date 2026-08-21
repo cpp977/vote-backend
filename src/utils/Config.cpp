@@ -29,6 +29,27 @@ AgeBucketConfig load_age_bucket_config() {
   return cfg;
 }
 
+StatsConfig load_stats_config() {
+  StatsConfig cfg;
+  const char* conf_path_c = std::getenv("VOTE_BACKEND_CONFPATH");
+  std::string config_path =
+      conf_path_c ? std::string(conf_path_c) : "/etc/vote";
+
+  Json::Value json_cfg;
+  std::ifstream ifs(fmt::format("{}/config.json", config_path));
+  if (ifs.is_open()) {
+    ifs >> json_cfg;
+    ifs.close();
+  }
+
+  // Fallback default
+  cfg.min_answers = 5;
+  if (json_cfg.isMember("stats_min_answers")) {
+    cfg.min_answers = json_cfg["stats_min_answers"].asInt();
+  }
+  return cfg;
+}
+
 CORSConfig load_cors_config() {
   CORSConfig cfg;
   const char* conf_path_c = std::getenv("VOTE_BACKEND_CONFPATH");

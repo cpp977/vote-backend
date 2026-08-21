@@ -133,23 +133,29 @@ TEST_CASE("GetQuestionsByLanguage returns well-known English question texts") {
 // GET /questions/{id}/stats
 // ---------------------------------------------------------------------------
 
-TEST_CASE("GetStats for question with no votes returns empty array") {
+TEST_CASE("GetStats for question with no votes reports insufficient data") {
   // Question 50 ("How often do you listen to podcasts?") has no user_answers.
   auto resp = test_helpers::http_request(
       "GET", "127.0.0.1", 8848, "/questions/50/stats", "", "application/json",
       global_fixture.access_token);
   CHECK(resp.status == 200);
-  CHECK(resp.json_body.is_array());
-  CHECK(resp.json_body.empty());
+  CHECK(resp.json_body.is_object());
+  CHECK(resp.json_body["status"] == "insufficient_data");
+  CHECK(resp.json_body["message"] ==
+        "Not enough responses to display statistics for this filter.");
+  CHECK(resp.json_body["answers"].is_array());
+  CHECK(resp.json_body["answers"].empty());
 }
 
-TEST_CASE("GetStats for non-existent question returns empty array") {
+TEST_CASE("GetStats for non-existent question reports insufficient data") {
   auto resp = test_helpers::http_request(
       "GET", "127.0.0.1", 8848, "/questions/99999/stats", "",
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
-  CHECK(resp.json_body.is_array());
-  CHECK(resp.json_body.empty());
+  CHECK(resp.json_body.is_object());
+  CHECK(resp.json_body["status"] == "insufficient_data");
+  CHECK(resp.json_body["answers"].is_array());
+  CHECK(resp.json_body["answers"].empty());
 }
 
 TEST_CASE("GetStats returns correct counts and percentages for seeded votes") {
@@ -161,20 +167,25 @@ TEST_CASE("GetStats returns correct counts and percentages for seeded votes") {
       "GET", "127.0.0.1", 8848, "/questions/1/stats", "", "application/json",
       global_fixture.access_token);
   CHECK(resp.status == 200);
-  CHECK(resp.json_body.is_array());
-  CHECK(resp.json_body.size() == 2);
+  CHECK(resp.json_body.is_object());
+  CHECK(resp.json_body["status"] == "ok");
+  CHECK(resp.json_body["message"] == "");
+  CHECK(resp.json_body["answers"].is_array());
+
+  const auto& answers = resp.json_body["answers"];
+  CHECK(answers.size() == 2);
 
   // Verify structure.
   std::vector<std::string> expected_keys = {"answer_id", "answer_text", "count",
                                             "percent"};
-  for (size_t i = 0; i < resp.json_body.size(); ++i) {
-    test_helpers::check_json_has_keys(resp.json_body[i], expected_keys,
+  for (size_t i = 0; i < answers.size(); ++i) {
+    test_helpers::check_json_has_keys(answers[i], expected_keys,
                                       "stat[" + std::to_string(i) + "]");
   }
 
   // Find each answer in the response (order is not guaranteed).
   auto find_answer = [&](int answer_id) -> nlohmann::json {
-    for (const auto& item : resp.json_body) {
+    for (const auto& item : answers) {
       if (item["answer_id"] == answer_id) return item;
     }
     return {};
@@ -194,20 +205,23 @@ TEST_CASE("GetStats returns correct counts and percentages for seeded votes") {
 }
 
 TEST_CASE(
-    "GetStats with tag filter returns filtered results for seeded votes") {
+    "GetStats with tag parameters returns filtered results for seeded "
+    "votes") {
   // Seed data (004_test_data.sql) for question 3 ("Do you have an own car?"):
-  //   answer_id=11 ("Yes")  -> 2 votes with gender=m, 1 vote with gender=f
+  //   answer_id=11 ("Yes")  -> 2 votes with gender=m, 1 vote with gender=w
   //   answer_id=12 ("No")   -> 1 vote with gender=m
   //   answer_id=13 ("I share one") -> 0 votes
   //
   // Filter gender=m: answer_id=11 (count=2), answer_id=12 (count=1), total=3
-  // Filter gender=f: answer_id=11 (count=1), total=1
+  // Filter gender=w: answer_id=11 (count=1), total=1
   auto resp_m = test_helpers::http_request(
-      "GET", "127.0.0.1", 8848, "/questions/3/stats?tagKey=gender&tagValue=m",
-      "", "application/json", global_fixture.access_token);
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?gender=m", "",
+      "application/json", global_fixture.access_token);
   CHECK(resp_m.status == 200);
-  CHECK(resp_m.json_body.is_array());
-  CHECK(resp_m.json_body.size() == 2);
+  CHECK(resp_m.json_body.is_object());
+  CHECK(resp_m.json_body["status"] == "ok");
+  CHECK(resp_m.json_body["answers"].is_array());
+  CHECK(resp_m.json_body["answers"].size() == 2);
 
   auto find_answer = [&](const nlohmann::json& arr,
                          int answer_id) -> nlohmann::json {
@@ -217,38 +231,80 @@ TEST_CASE(
     return {};
   };
 
-  auto stat11 = find_answer(resp_m.json_body, 11);
+  const auto& answers_m = resp_m.json_body["answers"];
+  auto stat11 = find_answer(answers_m, 11);
   CHECK(!stat11.is_null());
   CHECK(stat11["answer_text"] == "Yes");
   CHECK(stat11["count"] == 2);
   CHECK(stat11["percent"].get<double>() ==
         doctest::Approx(66.67).epsilon(0.01));
 
-  auto stat12 = find_answer(resp_m.json_body, 12);
+  auto stat12 = find_answer(answers_m, 12);
   CHECK(!stat12.is_null());
   CHECK(stat12["answer_text"] == "No");
   CHECK(stat12["count"] == 1);
   CHECK(stat12["percent"].get<double>() ==
         doctest::Approx(33.33).epsilon(0.01));
 
-  // Filter gender=f: only answer_id=11 with count=1, 100%
-  auto resp_f = test_helpers::http_request(
-      "GET", "127.0.0.1", 8848, "/questions/3/stats?tagKey=gender&tagValue=f",
-      "", "application/json", global_fixture.access_token);
-  CHECK(resp_f.status == 200);
-  CHECK(resp_f.json_body.is_array());
-  CHECK(resp_f.json_body.size() == 1);
-  CHECK(resp_f.json_body[0]["answer_id"] == 11);
-  CHECK(resp_f.json_body[0]["answer_text"] == "Yes");
-  CHECK(resp_f.json_body[0]["count"] == 1);
-  CHECK(resp_f.json_body[0]["percent"].get<double>() == doctest::Approx(100.0));
+  // Filter gender=w: only answer_id=11 with count=1, 100%. The seed data
+  // uses the canonical gender vocabulary (m/w/d) that the backend derives
+  // from the users table.
+  auto resp_w = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?gender=w", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_w.status == 200);
+  CHECK(resp_w.json_body["status"] == "ok");
+  CHECK(resp_w.json_body["answers"].is_array());
+  CHECK(resp_w.json_body["answers"].size() == 1);
+  CHECK(resp_w.json_body["answers"][0]["answer_id"] == 11);
+  CHECK(resp_w.json_body["answers"][0]["answer_text"] == "Yes");
+  CHECK(resp_w.json_body["answers"][0]["count"] == 1);
+  CHECK(resp_w.json_body["answers"][0]["percent"].get<double>() ==
+        doctest::Approx(100.0));
+}
+
+TEST_CASE("GetStats ignores unknown tag parameters") {
+  // birth_year is not a filterable tag (it is bucketed into age_bucket), so a
+  // birth_year query parameter is simply ignored: the request behaves like an
+  // unfiltered query.
+  auto resp = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?birth_year=1985", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["status"] == "ok");
+  CHECK(resp.json_body["answers"].size() == 2);
+}
+
+TEST_CASE("GetStats rejects invalid tag values with 400") {
+  // "x" is not a valid gender value.
+  auto resp_bad_gender = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?gender=x", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_bad_gender.status == 400);
+  CHECK(resp_bad_gender.json_body.contains("error"));
+
+  // Malformed age bucket label.
+  auto resp_bad_bucket = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?age_bucket=abc", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_bad_bucket.status == 400);
+  CHECK(resp_bad_bucket.json_body.contains("error"));
+
+  // Empty parameter values are treated as absent (no filtering).
+  auto resp_empty = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/3/stats?gender=", "",
+      "application/json", global_fixture.access_token);
+  CHECK(resp_empty.status == 200);
+  CHECK(resp_empty.json_body["status"] == "ok");
 }
 
 TEST_CASE("GetStats is accessible without authentication") {
   auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848,
                                          "/questions/1/stats");
   CHECK(resp.status == 200);
-  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.is_object());
+  CHECK(resp.json_body.contains("status"));
+  CHECK(resp.json_body["answers"].is_array());
 }
 
 // ---------------------------------------------------------------------------
@@ -1291,35 +1347,38 @@ TEST_CASE(
   CHECK(resp.json_body["question_id"] == 7);
   CHECK(resp.json_body["answer_id"] == 27);
 
-  // The raw birth year must never be stored as a tag.
+  // A birth_year query parameter is simply ignored (it is not a filterable
+  // tag): the request behaves like an unfiltered query, proving the raw birth
+  // year is neither stored nor filterable.
   auto resp_raw_year = test_helpers::http_request(
-      "GET", "127.0.0.1", 8848,
-      "/questions/7/stats?tagKey=birth_year&tagValue=1985", "",
+      "GET", "127.0.0.1", 8848, "/questions/7/stats?birth_year=1985", "",
       "application/json", global_fixture.access_token);
   CHECK(resp_raw_year.status == 200);
-  CHECK(resp_raw_year.json_body.is_array());
-  CHECK(resp_raw_year.json_body.empty());
+  CHECK(resp_raw_year.json_body["status"] == "ok");
+  CHECK(resp_raw_year.json_body["answers"].size() == 1);
 
   // The bucketed age range derived from the profile must be stored instead.
   auto resp_age = test_helpers::http_request(
       "GET", "127.0.0.1", 8848,
-      "/questions/7/stats?tagKey=age_bucket&tagValue=" + expected_bucket, "",
+      "/questions/7/stats?age_bucket=" + expected_bucket, "",
       "application/json", global_fixture.access_token);
   CHECK(resp_age.status == 200);
-  CHECK(resp_age.json_body.is_array());
-  CHECK(resp_age.json_body.size() == 1);
-  CHECK(resp_age.json_body[0]["answer_id"] == 27);
-  CHECK(resp_age.json_body[0]["count"] == 1);
+  CHECK(resp_age.json_body["status"] == "ok");
+  CHECK(resp_age.json_body["answers"].is_array());
+  CHECK(resp_age.json_body["answers"].size() == 1);
+  CHECK(resp_age.json_body["answers"][0]["answer_id"] == 27);
+  CHECK(resp_age.json_body["answers"][0]["count"] == 1);
 
   // The gender tag must be derived from the profile as well ('w' for Admin).
   auto resp_gender = test_helpers::http_request(
-      "GET", "127.0.0.1", 8848, "/questions/7/stats?tagKey=gender&tagValue=w",
-      "", "application/json", global_fixture.access_token);
+      "GET", "127.0.0.1", 8848, "/questions/7/stats?gender=w", "",
+      "application/json", global_fixture.access_token);
   CHECK(resp_gender.status == 200);
-  CHECK(resp_gender.json_body.is_array());
-  CHECK(resp_gender.json_body.size() == 1);
-  CHECK(resp_gender.json_body[0]["answer_id"] == 27);
-  CHECK(resp_gender.json_body[0]["count"] == 1);
+  CHECK(resp_gender.json_body["status"] == "ok");
+  CHECK(resp_gender.json_body["answers"].is_array());
+  CHECK(resp_gender.json_body["answers"].size() == 1);
+  CHECK(resp_gender.json_body["answers"][0]["answer_id"] == 27);
+  CHECK(resp_gender.json_body["answers"][0]["count"] == 1);
 }
 
 // ---------------------------------------------------------------------------
