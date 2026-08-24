@@ -1048,6 +1048,7 @@ Json::Value submissionToJson(const drogon::orm::Row& row) {
   q["min_age"] =
       Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
   q["created_at"] = row["created_at"].as<std::string>();
+  q["special_category"] = row["special_category"].as<std::string>();
   if (!row["submission_status"].isNull()) {
     q["submission_status"] = row["submission_status"].as<std::string>();
   }
@@ -1080,7 +1081,8 @@ void QuestionController::getMySubmissions(
           std::move(callback));
 
   *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
-               "submission_status, submitted_by, reviewed_by "
+               "special_category, submission_status, submitted_by, "
+               "reviewed_by "
                "FROM questions "
                "WHERE submitted_by = $1::uuid "
                "ORDER BY created_at DESC"
@@ -1132,7 +1134,8 @@ void QuestionController::listSubmissions(
   std::string status = req->getParameter("status");
   if (!status.empty() && (status == "pending" || status == "rejected")) {
     *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
-                 "submission_status, submitted_by, reviewed_by "
+                 "special_category, submission_status, submitted_by, "
+                 "reviewed_by "
                  "FROM questions "
                  "WHERE submission_status = $1::text "
                  "ORDER BY created_at DESC"
@@ -1140,7 +1143,8 @@ void QuestionController::listSubmissions(
         handle >> onError;
   } else {
     *dbClient << "SELECT id, text, category_id, language, min_age, created_at, "
-                 "submission_status, submitted_by, reviewed_by "
+                 "special_category, submission_status, submitted_by, "
+                 "reviewed_by "
                  "FROM questions "
                  "WHERE submission_status <> 'approved' "
                  "ORDER BY created_at DESC" >>
@@ -1155,6 +1159,58 @@ void QuestionController::approveQuestion(
   // Reviewed-by is taken from the verified admin JWT; clients cannot forge it.
   std::string admin_id = req->attributes()->get<std::string>("user_id");
 
+  // Optional body: {"min_age"?: integer, "special_category"?: string}. The
+  // submitting user no longer chooses a minimum age; the approving admin sets
+  // it here (default 0, i.e. no age restriction) along with the GDPR special
+  // category flag (default 'none').
+  int64_t min_age = 0;
+  std::string special_category = "none";
+  if (auto jsonPtr = req->getJsonObject()) {
+    if (jsonPtr->isMember("min_age")) {
+      if (!(*jsonPtr)["min_age"].isIntegral()) {
+        Json::Value err;
+        err["error"] = "Field 'min_age' must be an integer";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      const Json::Int64 requested = (*jsonPtr)["min_age"].asInt64();
+      constexpr Json::Int64 kMaxMinAge = 120;
+      if (requested < 0 || requested > kMaxMinAge) {
+        Json::Value err;
+        err["error"] =
+            fmt::format("Field 'min_age' must be between 0 and {}", kMaxMinAge);
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      min_age = requested;
+    }
+    if (jsonPtr->isMember("special_category")) {
+      if (!(*jsonPtr)["special_category"].isString()) {
+        Json::Value err;
+        err["error"] = "Field 'special_category' must be a string";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      const std::string label = (*jsonPtr)["special_category"].asString();
+      // A label is valid when it round-trips through the enum unchanged.
+      if (specialCategoryToString(specialCategoryFromString(label)) != label) {
+        Json::Value err;
+        err["error"] = "Unknown value for field 'special_category'";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      special_category = label;
+    }
+  }
+
   auto dbClient = app().getDbClient();
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
@@ -1163,11 +1219,15 @@ void QuestionController::approveQuestion(
   *dbClient << "UPDATE questions "
                "SET submission_status = 'approved', "
                "    reviewed_by = $2::uuid, "
-               "    reviewed_at = NOW() "
+               "    reviewed_at = NOW(), "
+               "    min_age = $3::bigint, "
+               "    special_category = $4::special_category_type "
                "WHERE id = $1::bigint "
                "RETURNING id, text, category_id, language, min_age, "
-               "created_at, submission_status, submitted_by, reviewed_by"
-            << static_cast<int64_t>(questionId) << admin_id >>
+               "created_at, special_category, submission_status, "
+               "submitted_by, reviewed_by"
+            << static_cast<int64_t>(questionId) << admin_id << min_age
+            << special_category >>
       [callbackPtr](const Result& r) {
         if (r.empty()) {
           auto resp = HttpResponse::newHttpResponse();
@@ -1206,7 +1266,8 @@ void QuestionController::rejectQuestion(
                "    reviewed_at = NOW() "
                "WHERE id = $1::bigint "
                "RETURNING id, text, category_id, language, min_age, "
-               "created_at, submission_status, submitted_by, reviewed_by"
+               "created_at, special_category, submission_status, "
+               "submitted_by, reviewed_by"
             << static_cast<int64_t>(questionId) << admin_id >>
       [callbackPtr](const Result& r) {
         if (r.empty()) {
@@ -1561,11 +1622,18 @@ void QuestionController::submitQuestion(
     return;
   }
 
-  int min_age = 0;
-  if ((*jsonPtr).isMember("min_age") && (*jsonPtr)["min_age"].isIntegral()) {
-    min_age = (*jsonPtr)["min_age"].asInt();
+  // The minimum age is no longer chosen by the submitting user; admins set
+  // it (together with the special category) when approving the question.
+  if ((*jsonPtr).isMember("min_age")) {
+    Json::Value err;
+    err["error"] =
+        "Field 'min_age' is not accepted; it is set when the question is "
+        "approved";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
   }
-  if (min_age < 0) min_age = 0;
 
   // --- Answer options (required, non-empty) ---------------------------------
   // Each option is either a plain string or an object carrying a non-empty
@@ -1668,13 +1736,13 @@ void QuestionController::submitQuestion(
       return;
     }
 
-    *trans << "INSERT INTO questions (text, category_id, language, min_age, "
+    *trans << "INSERT INTO questions (text, category_id, language, "
               "submission_status, submitted_by) "
-              "VALUES ($1::text, $2::bigint, $3::char(2), $4::int, "
-              "'pending', $5::uuid) "
+              "VALUES ($1::text, $2::bigint, $3::char(2), 'pending', "
+              "$4::uuid) "
               "RETURNING id, text, category_id, language, min_age, "
               "created_at, special_category, submission_status, submitted_by"
-           << text << category_id << language << min_age << user_id >>
+           << text << category_id << language << user_id >>
         [=](const Result& r) {
           const int64_t new_qid = r[0]["id"].as<long long>();
 

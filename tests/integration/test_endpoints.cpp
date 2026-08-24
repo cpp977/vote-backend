@@ -1863,6 +1863,105 @@ TEST_CASE("SubmissionWorkflow submit pending approve reject") {
   CHECK(get_rejected.status == 404);
 }
 
+TEST_CASE("Submission rejects requests containing min_age") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  nlohmann::json body = {{"text", "Legacy submission with min_age?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"min_age", 18},
+                         {"answer_options", {"Yes", "No"}}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/questions/submissions", body.dump(),
+                                         "application/json", user_token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("ApproveQuestion applies min_age and special_category") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json body = {{"text", "How often do you visit a doctor?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Never", "Sometimes"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  // Submitted without min_age: the defaults apply until approval.
+  CHECK(create.json_body["min_age"] == 0);
+  CHECK(create.json_body["special_category"] == "none");
+  int new_id = create.json_body["id"].get<int>();
+
+  // Invalid special_category label -> 400, submission stays pending.
+  nlohmann::json bad_category = {{"min_age", 18},
+                                 {"special_category", "not_a_category"}};
+  auto bad_cat_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      bad_category.dump(), "application/json", admin_token);
+  CHECK(bad_cat_resp.status == 400);
+
+  // Invalid min_age values -> 400 as well.
+  nlohmann::json negative_age = {{"min_age", -1}};
+  auto negative_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      negative_age.dump(), "application/json", admin_token);
+  CHECK(negative_resp.status == 400);
+
+  nlohmann::json string_age = {{"min_age", "eighteen"}};
+  auto string_age_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      string_age.dump(), "application/json", admin_token);
+  CHECK(string_age_resp.status == 400);
+
+  // Valid body -> approved with the given values, echoed in the response
+  // and visible on the public single-question endpoint.
+  nlohmann::json approve_body = {{"min_age", 18},
+                                 {"special_category", "health"}};
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      approve_body.dump(), "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+  CHECK(approve.json_body["min_age"] == 18);
+  CHECK(approve.json_body["special_category"] == "health");
+
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", user_token);
+  CHECK(get_one.status == 200);
+  CHECK(get_one.json_body["min_age"] == 18);
+  CHECK(get_one.json_body["special_category"] == "health");
+
+  // Approval without a body remains valid and keeps the defaults.
+  nlohmann::json body2 = {{"text", "Plain question without special data?"},
+                          {"category_id", 1},
+                          {"language", "en"},
+                          {"answer_options", {"Yes", "No"}}};
+  auto create2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body2.dump(),
+      "application/json", user_token);
+  CHECK(create2.status == 201);
+  int new_id2 = create2.json_body["id"].get<int>();
+
+  auto plain_approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id2) + "/approve", "",
+      "application/json", admin_token);
+  CHECK(plain_approve.status == 200);
+  CHECK(plain_approve.json_body["min_age"] == 0);
+  CHECK(plain_approve.json_body["special_category"] == "none");
+}
+
 TEST_CASE(
     "SubmissionWorkflow pending question answer options hidden from others") {
   auto user_token =
