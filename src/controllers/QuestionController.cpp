@@ -668,7 +668,7 @@ void QuestionController::restSearchQuestions(
   }
 
   std::string sql =
-      "SELECT q.id, q.text, q.language, q.category_id, "
+      "SELECT q.id, q.text, q.language, q.category_id, q.special_category, "
       "c.name AS category_name FROM questions q "
       "LEFT JOIN categories c ON c.id = q.category_id AND c.language = "
       "q.language "
@@ -743,6 +743,7 @@ void QuestionController::restSearchQuestions(
       q["category_id"] = Json::Value(
           static_cast<Json::Int64>(row.at("category_id").as<long long>()));
       q["category_name"] = category_name.as<std::string>();
+      q["special_category"] = row.at("special_category").as<std::string>();
       ret.append(q);
     }
     callback(HttpResponse::newHttpJsonResponse(ret));

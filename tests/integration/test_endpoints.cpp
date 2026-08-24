@@ -920,8 +920,9 @@ TEST_CASE("RestSearchQuestions returns correct fields in response") {
   CHECK(resp.status == 200);
 
   // Check that every returned object has all expected keys
-  std::vector<std::string> expected_keys = {"id", "text", "language",
-                                            "category_id", "category_name"};
+  std::vector<std::string> expected_keys = {
+      "id",          "text",          "language",
+      "category_id", "category_name", "special_category"};
 
   for (size_t i = 0; i < resp.json_body.size(); ++i) {
     test_helpers::check_json_has_keys(
@@ -1472,6 +1473,36 @@ TEST_CASE("GetOne returns the special_category of a question") {
       global_fixture.access_token);
   CHECK(resp_regular.status == 200);
   CHECK(resp_regular.json_body["special_category"] == "none");
+}
+
+TEST_CASE("RestSearchQuestions returns the special_category of questions") {
+  // The client list endpoint must expose the flag as well, so apps can ask
+  // for consent before answering a flagged question. An explicit high limit
+  // is required: without it the default page size of 50 (ordered by
+  // created_at DESC) only covers the newest seeded questions, which do not
+  // include ids 1 and 8.
+  nlohmann::json request_body;
+  request_body["limit"] = 1000;
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  REQUIRE(resp.json_body.is_array());
+
+  bool found_special = false;
+  bool found_regular = false;
+  for (const auto& q : resp.json_body) {
+    if (q["id"] == 8) {
+      found_special = true;
+      CHECK(q["special_category"] == "health");
+    }
+    if (q["id"] == 1) {
+      found_regular = true;
+      CHECK(q["special_category"] == "none");
+    }
+  }
+  CHECK(found_special);
+  CHECK(found_regular);
 }
 
 // ---------------------------------------------------------------------------
