@@ -19,10 +19,10 @@ AgeBucketConfig load_age_bucket_config() {
     ifs.close();
   } else {
     // Fallback default
-    json_cfg["age_bucket_size"] = 5;
+    json_cfg["age_bucket_size"] = 10;
   }
 
-  cfg.bucket_size = 5;
+  cfg.bucket_size = 10;
   if (json_cfg.isMember("age_bucket_size")) {
     cfg.bucket_size = json_cfg["age_bucket_size"].asInt();
   }

@@ -38,6 +38,7 @@ set(
     src/utils/ErrorResponse.cpp
     src/utils/Config.cpp
     src/utils/BirthYearBucketer.cpp
+    src/utils/Nationality.cpp
 )
 
 # main target
@@ -60,6 +61,7 @@ set(
     tests/admin_auth_filter_test.cpp
     tests/UserIdHash_test.cpp
     tests/BirthYearBucketer_test.cpp
+    tests/Nationality_test.cpp
 )
 
 set(

@@ -1332,9 +1332,11 @@ TEST_CASE(
   const int current_year = tm_buf.tm_year + 1900;
   const int birth_year = 1985;
   const int age = current_year - birth_year;
-  const int bucket_start = (age / 5) * 5;
+  // Bucket width must mirror `age_bucket_size` from config.json (default 10).
+  const int bucket_size = 10;
+  const int bucket_start = (age / bucket_size) * bucket_size;
   const std::string expected_bucket =
-      fmt::format("{}-{}", bucket_start, bucket_start + 4);
+      fmt::format("{}-{}", bucket_start, bucket_start + bucket_size - 1);
 
   // Question 7 ("Do you recycle regularly?") is not used by any other answer
   // test; answer_id=27 is its first option ("Always").

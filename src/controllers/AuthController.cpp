@@ -36,6 +36,7 @@
 #include "vote-backend/models/Users.hpp"
 #include "vote-backend/utils/ErrorResponse.hpp"
 #include "vote-backend/utils/JwtService.hpp"
+#include "vote-backend/utils/Nationality.hpp"
 
 using namespace drogon;
 using namespace drogon_model::vote;
@@ -301,6 +302,20 @@ void AuthController::register_user(
   if (has_gender && gender != "m" && gender != "w" && gender != "d") {
     send_error(cb, "gender must be one of 'm', 'w', 'd'", k400BadRequest);
     return;
+  }
+
+  // Nationality, when provided, must be an ISO 3166-1 alpha-2 country code;
+  // it is normalized to uppercase before storage so that statistics filters
+  // match deterministically instead of fragmenting over spelling variants.
+  if (has_nationality) {
+    nationality = vote_backend::utils::normalize_nationality(nationality);
+    if (nationality.empty()) {
+      send_error(cb,
+                 "nationality must be an ISO 3166-1 alpha-2 country code "
+                 "(e.g. 'DE')",
+                 k400BadRequest);
+      return;
+    }
   }
 
   // Basic validation

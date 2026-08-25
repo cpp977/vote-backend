@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace vote_backend::utils {
 
@@ -28,5 +29,20 @@ int currentYear();
 ///                     real wall-clock year via currentYear()).
 std::string bucketBirthYear(int birth_year, int bucket_size,
                             int current_year = currentYear());
+
+/// Generates the ordered list of age-bucket labels for @p bucket_size,
+/// covering ages 0..@p max_age. The labels mirror exactly what
+/// [bucketBirthYear] produces for ages within that range and are used by the
+/// `GET /stats/meta` endpoint to advertise the filterable buckets to clients.
+///
+/// Ages above @p max_age are statistically negligible; the stats endpoint
+/// still accepts their (unlisted) labels as filter values.
+///
+/// Returns an empty list when @p bucket_size is <= 0 or @p max_age is < 0.
+///
+/// @param bucket_size Width of each bucket in years (e.g. 10).
+/// @param max_age     Highest age the generated labels must cover.
+std::vector<std::string> age_bucket_labels(int bucket_size,
+                                           int max_age = 119);
 
 }  // namespace vote_backend::utils

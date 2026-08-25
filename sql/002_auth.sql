@@ -7,7 +7,10 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     birth_year INT,
     gender CHAR(1) CHECK (gender IN ('m', 'w', 'd')),
-    nationality VARCHAR(100),
+    -- ISO 3166-1 alpha-2 country code (uppercase), optional. The backend
+    -- normalizes user input before insert; the CHECK keeps junk out even if
+    -- that path is bypassed.
+    nationality VARCHAR(2) CHECK (nationality ~ '^[A-Z]{2}$'),
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

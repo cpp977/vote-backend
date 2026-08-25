@@ -23,6 +23,7 @@
 #include "vote-backend/models/Questions.hpp"
 #include "vote-backend/utils/BirthYearBucketer.hpp"
 #include "vote-backend/utils/Config.hpp"
+#include "vote-backend/utils/Nationality.hpp"
 #include "vote-backend/utils/UserIdHash.hpp"
 
 using drogon::orm::DrogonDbException;
@@ -361,8 +362,9 @@ bool isValidStatsTagValue(const std::string& key, const std::string& value) {
     return value == "m" || value == "w" || value == "d";
   }
   if (key == "nationality") {
-    // Mirrors users.nationality VARCHAR(100).
-    return !value.empty() && value.size() <= 100;
+    // ISO 3166-1 alpha-2 country code (case-insensitive); the caller
+    // normalizes the value to uppercase before storing it in the filter.
+    return vote_backend::utils::is_valid_nationality(value);
   }
   if (key == "age_bucket") {
     // Bucket labels have the form "<start>-<end>" with non-negative integers.
@@ -401,7 +403,13 @@ void QuestionController::getStats(
     if (value.empty()) {
       return true;  // parameter absent or empty: do not filter on this tag
     }
-    if (!isValidStatsTagValue(tag_key, value)) {
+    // Nationality is normalized (e.g. "de" -> "DE") so the containment
+    // filter matches the canonical form stored in user_answers.tags.
+    std::string normalized = value;
+    if (std::string(tag_key) == "nationality") {
+      normalized = vote_backend::utils::normalize_nationality(value);
+    }
+    if (!isValidStatsTagValue(tag_key, normalized)) {
       Json::Value err;
       err["error"] = fmt::format("Invalid value for tag filter '{}'", tag_key);
       auto resp = HttpResponse::newHttpJsonResponse(err);
@@ -409,7 +417,7 @@ void QuestionController::getStats(
       cb(resp);
       return false;
     }
-    tags_filter[tag_key] = value;
+    tags_filter[tag_key] = normalized;
     return true;
   };
   if (!add_tag_filter("gender", "gender") ||
@@ -511,6 +519,95 @@ void QuestionController::getStats(
       filter_tags ? Json::writeString(builder, tags_filter) : std::string("{}");
   dbClient->execSqlAsync(sql, onResult, onError,
                          static_cast<int64_t>(questionId), tags_json);
+}
+
+// ---------------------------------------------------------------------------
+// GET /stats/meta
+// ---------------------------------------------------------------------------
+void QuestionController::getStatsMeta(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
+  (void)req;  // no request parameters
+
+  const auto age_cfg = load_age_bucket_config();
+  const auto stats_cfg = load_stats_config();
+
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  // Assembles the metadata document once the nationality values are known.
+  // Age labels are generated from the configured bucket width, so clients can
+  // always offer exactly the buckets the backend produces — even when the
+  // width changes via config.json.
+  const auto build_response =
+      [callbackPtr,
+       age_bucket_size = static_cast<Json::Int>(age_cfg.bucket_size),
+       min_answers = static_cast<Json::Int>(stats_cfg.min_answers)](
+          const std::vector<std::string>& nationalities) {
+        Json::Value dimensions(Json::arrayValue);
+
+        Json::Value gender(Json::objectValue);
+        gender["key"] = "gender";
+        Json::Value gender_values(Json::arrayValue);
+        for (const char* g : {"m", "w", "d"}) {
+          gender_values.append(g);
+        }
+        gender["values"] = gender_values;
+        dimensions.append(gender);
+
+        Json::Value age(Json::objectValue);
+        age["key"] = "age_bucket";
+        Json::Value age_values(Json::arrayValue);
+        for (const auto& label :
+             vote_backend::utils::age_bucket_labels(age_bucket_size)) {
+          age_values.append(label);
+        }
+        age["values"] = age_values;
+        dimensions.append(age);
+
+        Json::Value nationality(Json::objectValue);
+        nationality["key"] = "nationality";
+        Json::Value nationality_values(Json::arrayValue);
+        for (const auto& code : nationalities) {
+          nationality_values.append(code);
+        }
+        nationality["values"] = nationality_values;
+        dimensions.append(nationality);
+
+        Json::Value ret;
+        ret["age_bucket_size"] = age_bucket_size;
+        ret["min_answers"] = min_answers;
+        ret["dimensions"] = dimensions;
+        (*callbackPtr)(HttpResponse::newHttpJsonResponse(ret));
+      };
+
+  // Advertise only normalized country codes that actually occur among users,
+  // and only those with at least `min_answers` occurrences so the filter
+  // sheet does not offer segments that are guaranteed to be withheld by the
+  // privacy threshold anyway.
+  auto dbClient = app().getDbClient();
+  auto onResult = [build_response](const Result& r) {
+    std::vector<std::string> codes;
+    codes.reserve(r.size());
+    for (const auto& row : r) {
+      if (!row["nationality"].isNull()) {
+        codes.push_back(row["nationality"].as<std::string>());
+      }
+    }
+    build_response(codes);
+  };
+  auto onError = [callbackPtr](const DrogonDbException& e) {
+    LOG_ERROR << fmt::format("getStatsMeta DB error: {}", e.base().what());
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setStatusCode(k500InternalServerError);
+    resp->setBody(e.base().what());
+    (*callbackPtr)(resp);
+  };
+  dbClient->execSqlAsync(
+      "SELECT nationality FROM users WHERE nationality IS NOT NULL "
+      "GROUP BY nationality HAVING COUNT(*) >= $1 ORDER BY nationality",
+      onResult, onError, static_cast<int64_t>(stats_cfg.min_answers));
 }
 
 enum class FilterKind { Equal, GreaterEq, LessEq, ILike, InArray };

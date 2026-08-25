@@ -94,9 +94,9 @@ CREATE INDEX ix_user_answers_gender
 ON user_answers ((tags->>'gender'))
 WHERE tags ? 'gender';
 
-CREATE INDEX ix_user_answers_age
-ON user_answers ((tags->>'age'))
-WHERE tags ? 'age';
+CREATE INDEX ix_user_answers_age_bucket
+ON user_answers ((tags->>'age_bucket'))
+WHERE tags ? 'age_bucket';
 
 -- Anonymous per-user answer tracking.
 -- Enforces at the database layer that a given user may answer a question only

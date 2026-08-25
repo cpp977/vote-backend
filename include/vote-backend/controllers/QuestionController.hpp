@@ -6,6 +6,10 @@ class QuestionController : public drogon::HttpController<QuestionController> {
  public:
   METHOD_LIST_BEGIN
   // Standard REST endpoints for /questions.
+  // Statistics metadata describing the tag dimensions/values the backend can
+  // resolve (public, like /questions/{id}/stats).
+  ADD_METHOD_TO(QuestionController::getStatsMeta, "/stats/meta", drogon::Get,
+                drogon::Options);
   ADD_METHOD_TO(QuestionController::get, "/questions", drogon::Get,
                 drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::getOne, "/questions/{1}", drogon::Get,
@@ -56,9 +60,14 @@ class QuestionController : public drogon::HttpController<QuestionController> {
                 drogon::Options, "AdminAuthFilter");
   METHOD_LIST_END
 
-  void getStats(const drogon::HttpRequestPtr& req,
-                std::function<void(const drogon::HttpResponsePtr&)>&& cb,
-                int questionId);
+    void getStats(const drogon::HttpRequestPtr& req,
+                  std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId);
+    // GET /stats/meta: describes the statistics tag contract — configured age
+    // bucket size, privacy threshold, and the allowed values per dimension.
+    // Age labels derive from config; nationality values reflect the normalized
+    // country codes actually present among users (>= min_answers occurrences).
+    void getStatsMeta(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
   void getAnswerOptions(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb, int questionId);

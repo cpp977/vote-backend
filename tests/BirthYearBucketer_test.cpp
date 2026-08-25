@@ -47,6 +47,40 @@ TEST_CASE("bucketBirthYear rejects invalid bucket sizes") {
   CHECK(bucketBirthYear(1990, -1, 2025).empty());
 }
 
+TEST_CASE("ageBucketLabels generates ordered decade labels by default") {
+  using vote_backend::utils::age_bucket_labels;
+
+  const auto labels = age_bucket_labels(10);
+  REQUIRE(labels.size() == 12);  // ages 0..119 -> starts 0,10,...,110
+  CHECK(labels.front() == "0-9");
+  CHECK(labels[1] == "10-19");
+  CHECK(labels[6] == "60-69");
+  CHECK(labels.back() == "110-119");
+}
+
+TEST_CASE("ageBucketLabels honours custom sizes and bounds") {
+  using vote_backend::utils::age_bucket_labels;
+
+  const auto five = age_bucket_labels(5, 14);
+  REQUIRE(five.size() == 3);
+  CHECK(five.front() == "0-4");
+  CHECK(five[1] == "5-9");
+  CHECK(five.back() == "10-14");  // last label clipped to max_age
+
+  // Labels are consistent with what bucketBirthYear produces.
+  const int cy = currentYear();
+  const auto labels = age_bucket_labels(10);
+  for (int age = 0; age <= 119; ++age) {
+    const int birth_year = cy - age;
+    const std::string expected = bucketBirthYear(birth_year, 10, cy);
+    REQUIRE(expected == labels[static_cast<size_t>(age / 10)]);
+  }
+
+  CHECK(age_bucket_labels(0).empty());
+  CHECK(age_bucket_labels(-3).empty());
+  CHECK(age_bucket_labels(10, -1).empty());
+}
+
 TEST_CASE("bucketBirthYear rejects implausible birth years") {
   const int cy = 2025;
 
