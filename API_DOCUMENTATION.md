@@ -12,7 +12,7 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 
 | Method | Path | Description | Authentication | Request Body | Response |
 |--------|------|-------------|----------------|--------------|----------|
-| **POST** | `/register` | Register a new user. Password is hashed with Argon2id. `nationality`, when provided, must be an ISO 3166‑1 alpha‑2 country code (case‑insensitive; it is normalized to uppercase before storage) — any other value is rejected with *400*. | No | ```json
+| **POST** | `/register` | Register a new user. Password is hashed with Argon2id. `nationality`, when provided, must be an ISO 3166‑1 alpha‑2 country code that exists in the `countries` reference table (case‑insensitive; it is normalized to uppercase before storage) — any other value is rejected with *400*. | No | ```json
 { "username": "string", "email": "string", "password": "string", "birth_year": 1990, "gender": "m", "nationality": "DE" }
 ``` | *201 Created* – JSON with user id. Errors: 400 (invalid), 409 (user exists). |
 | **POST** | `/login` | Authenticate a user and issue JWT access + refresh tokens. | No | ```json

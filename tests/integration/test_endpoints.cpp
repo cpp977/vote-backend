@@ -1736,6 +1736,52 @@ TEST_CASE("UpdateMe requires authentication") {
 }
 
 // ---------------------------------------------------------------------------
+// Registration nationality validation
+//
+// A nationality that is merely well-formed ("XX" matches ^[A-Z]{2}$ but is not
+// an officially assigned ISO 3166-1 alpha-2 code) must be rejected with 400
+// against the countries reference table instead of failing later on the
+// foreign key with an unspecific database error.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Register rejects well-formed but unknown country code with 400") {
+  nlohmann::json body = {{"username", "unknown_nat_user"},
+                         {"email", "unknown_nat@example.com"},
+                         {"password", "12345678"},
+                         {"nationality", "XX"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848, "/register",
+                                         body.dump());
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+
+  // Lowercase input must be normalized before the lookup, ending up equally
+  // rejected.
+  body["username"] = "unknown_nat_user2";
+  body["email"] = "unknown_nat2@example.com";
+  body["nationality"] = "zz";
+  auto resp2 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                          "/register", body.dump());
+  CHECK(resp2.status == 400);
+  CHECK(resp2.json_body.contains("error"));
+}
+
+TEST_CASE("Register accepts known country code (case-insensitive)") {
+  nlohmann::json body = {{"username", "known_nat_user"},
+                         {"email", "known_nat@example.com"},
+                         {"password", "12345678"},
+                         {"nationality", "de"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848, "/register",
+                                         body.dump());
+  // Tolerate 409 on re-runs against a not-yet-redeployed database, mirroring
+  // the authenticate() helper convention.
+  CHECK((resp.status == 201 || resp.status == 409));
+  if (resp.status == 201) {
+    CHECK(resp.json_body.contains("nationality"));
+    CHECK(resp.json_body["nationality"] == "DE");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Submission / approval workflow (Option B)
 //
 // A regular user submits a question, which is stored as 'pending' and is NOT

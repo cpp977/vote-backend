@@ -332,13 +332,29 @@ void AuthController::register_user(
 
   auto db = app().getDbClient();
 
-  // Check for existing user (username or email)
+  // Preflight in a single round-trip: check whether the username/email is
+  // taken and, when a nationality was supplied, whether the normalized code
+  // exists in the countries reference table. Verifying the code here turns
+  // what would otherwise surface as a foreign-key violation on INSERT
+  // (generic 500) into a precise 400. The empty string is the "field absent"
+  // sentinel: nationality is only ever stored as a normalized two-letter
+  // uppercase code, never as ''.
   db->execSqlAsync(
-      "SELECT id FROM users WHERE username = $1 OR email = $2 LIMIT 1",
+      "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 OR email = $2) "
+      "AS user_exists, "
+      "($3 = '' OR EXISTS(SELECT 1 FROM countries WHERE code = $3)) "
+      "AS country_ok",
       [cb, db, username, email, password, has_birth_year, birth_year,
        has_gender, gender, has_nationality,
        nationality](const drogon::orm::Result& r) {
-        if (r.size() > 0) {
+        if (!r[0]["country_ok"].as<bool>()) {
+          send_error(
+              cb, "nationality must be a known ISO 3166-1 alpha-2 country code",
+              k400BadRequest);
+          return;
+        }
+
+        if (r[0]["user_exists"].as<bool>()) {
           send_error(cb, "username or email already exists", k409Conflict);
           return;
         }
@@ -592,7 +608,7 @@ void AuthController::register_user(
         send_error(cb, std::string("Database error: ") + e.base().what(),
                    k500InternalServerError);
       },
-      username, email);
+      username, email, nationality);
 }
 
 // ---------------------------------------------------------------------------
