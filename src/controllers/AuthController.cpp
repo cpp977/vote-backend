@@ -31,12 +31,14 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <string>
 
 #include "vote-backend/models/Users.hpp"
 #include "vote-backend/utils/ErrorResponse.hpp"
 #include "vote-backend/utils/JwtService.hpp"
 #include "vote-backend/utils/Nationality.hpp"
+#include "vote-backend/utils/Region.hpp"
 
 using namespace drogon;
 using namespace drogon_model::vote;
@@ -292,11 +294,13 @@ void AuthController::register_user(
   bool has_gender = (*json).isMember("gender") && !(*json)["gender"].isNull();
   bool has_nationality =
       (*json).isMember("nationality") && !(*json)["nationality"].isNull();
+  bool has_region = (*json).isMember("region") && !(*json)["region"].isNull();
 
   int birth_year = has_birth_year ? (*json)["birth_year"].asInt() : 0;
   std::string gender = has_gender ? (*json)["gender"].asString() : "";
   std::string nationality =
       has_nationality ? (*json)["nationality"].asString() : "";
+  std::string region = has_region ? (*json)["region"].asString() : "";
 
   // Validate gender if provided
   if (has_gender && gender != "m" && gender != "w" && gender != "d") {
@@ -318,6 +322,19 @@ void AuthController::register_user(
     }
   }
 
+  // Region, when provided, must be an ISO 3166-2 subdivision code; it is
+  // normalized to uppercase before storage (see nationality above).
+  if (has_region) {
+    region = vote_backend::utils::normalize_region(region);
+    if (region.empty()) {
+      send_error(cb,
+                 "region must be an ISO 3166-2 subdivision code "
+                 "(e.g. 'DE-BE')",
+                 k400BadRequest);
+      return;
+    }
+  }
+
   // Basic validation
   if (username.empty() || email.empty() || password.empty()) {
     send_error(cb, "username, email, and password are required",
@@ -333,24 +350,32 @@ void AuthController::register_user(
   auto db = app().getDbClient();
 
   // Preflight in a single round-trip: check whether the username/email is
-  // taken and, when a nationality was supplied, whether the normalized code
-  // exists in the countries reference table. Verifying the code here turns
-  // what would otherwise surface as a foreign-key violation on INSERT
-  // (generic 500) into a precise 400. The empty string is the "field absent"
-  // sentinel: nationality is only ever stored as a normalized two-letter
-  // uppercase code, never as ''.
+  // taken and, when supplied, whether the normalized nationality / region
+  // codes exist in the reference tables. Verifying them here turns what
+  // would otherwise surface as foreign-key violations on INSERT (generic
+  // 500) into precise 400s. Empty strings are the "field absent" sentinels:
+  // both columns are only ever stored as normalized uppercase codes, never
+  // as ''.
   db->execSqlAsync(
       "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 OR email = $2) "
       "AS user_exists, "
       "($3 = '' OR EXISTS(SELECT 1 FROM countries WHERE code = $3)) "
-      "AS country_ok",
+      "AS country_ok, "
+      "($4 = '' OR EXISTS(SELECT 1 FROM regions WHERE code = $4)) "
+      "AS region_ok",
       [cb, db, username, email, password, has_birth_year, birth_year,
-       has_gender, gender, has_nationality,
-       nationality](const drogon::orm::Result& r) {
+       has_gender, gender, has_nationality, has_region, nationality,
+       region](const drogon::orm::Result& r) {
         if (!r[0]["country_ok"].as<bool>()) {
           send_error(
               cb, "nationality must be a known ISO 3166-1 alpha-2 country code",
               k400BadRequest);
+          return;
+        }
+
+        if (!r[0]["region_ok"].as<bool>()) {
+          send_error(cb, "region must be a known ISO 3166-2 subdivision code",
+                     k400BadRequest);
           return;
         }
 
@@ -369,246 +394,82 @@ void AuthController::register_user(
           return;
         }
 
-        if (has_birth_year && has_gender && has_nationality) {
-          // All optional fields present
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, birth_year, "
-              "gender, nationality) "
-              "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, email, "
-              "birth_year, gender, nationality, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["birth_year"] = row["birth_year"].as<int>();
-                user["gender"] = row["gender"].as<std::string>();
-                user["nationality"] = row["nationality"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, birth_year, gender, nationality);
-        } else if (has_birth_year && has_gender) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, birth_year, "
-              "gender) "
-              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
-              "birth_year, gender, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["birth_year"] = row["birth_year"].as<int>();
-                user["gender"] = row["gender"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, birth_year, gender);
-        } else if (has_birth_year && has_nationality) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, birth_year, "
-              "nationality) "
-              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
-              "birth_year, nationality, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["birth_year"] = row["birth_year"].as<int>();
-                user["nationality"] = row["nationality"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, birth_year, nationality);
-        } else if (has_gender && has_nationality) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, gender, "
-              "nationality) "
-              "VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, "
-              "gender, nationality, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["gender"] = row["gender"].as<std::string>();
-                user["nationality"] = row["nationality"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, gender, nationality);
-        } else if (has_birth_year) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, birth_year) "
-              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, "
-              "birth_year, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["birth_year"] = row["birth_year"].as<int>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, birth_year);
-        } else if (has_gender) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, gender) "
-              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, gender, "
-              "created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["gender"] = row["gender"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, gender);
-        } else if (has_nationality) {
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash, nationality) "
-              "VALUES ($1, $2, $3, $4) RETURNING id, username, email, "
-              "nationality, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["nationality"] = row["nationality"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash, nationality);
-        } else {
-          // No optional fields
-          db->execSqlAsync(
-              "INSERT INTO users (username, email, password_hash) "
-              "VALUES ($1, $2, $3) RETURNING id, username, email, created_at",
-              [cb](const drogon::orm::Result& r2) {
-                if (r2.size() == 0) {
-                  send_error(cb, "Failed to create user",
-                             k500InternalServerError);
-                  return;
-                }
-                const auto& row = r2[0];
-                Json::Value user;
-                user["id"] = row["id"].as<std::string>();
-                user["username"] = row["username"].as<std::string>();
-                user["email"] = row["email"].as<std::string>();
-                user["created_at"] = row["created_at"].as<std::string>();
-                auto resp = HttpResponse::newHttpJsonResponse(user);
-                resp->setStatusCode(k201Created);
-                cb(resp);
-              },
-              [cb](const drogon::orm::DrogonDbException& e) {
-                send_error(cb,
-                           std::string("Database error: ") + e.base().what(),
-                           k500InternalServerError);
-              },
-              username, email, pw_hash);
+        // Single dynamically-built INSERT containing exactly the provided
+        // optional columns; omitted ones default to NULL in the schema.
+        // RETURNING covers every column so one response builder suffices.
+        std::string sql = "INSERT INTO users (username, email, password_hash";
+        std::string placeholders = "$1, $2, $3";
+        int next_param = 3;
+        const auto add_optional_column = [&](const char* column) {
+          sql += std::string(", ") + column;
+          placeholders += ", $" + std::to_string(++next_param);
+        };
+        if (has_birth_year) {
+          add_optional_column("birth_year");
         }
+        if (has_gender) {
+          add_optional_column("gender");
+        }
+        if (has_nationality) {
+          add_optional_column("nationality");
+        }
+        if (has_region) {
+          add_optional_column("region");
+        }
+        sql += ") VALUES (" + placeholders +
+               ") RETURNING id, username, email, birth_year, gender, "
+               "nationality, region, created_at";
+
+        auto binder = *db << std::move(sql);
+        binder << username << email << pw_hash;
+        if (has_birth_year) {
+          binder << birth_year;
+        }
+        if (has_gender) {
+          binder << gender;
+        }
+        if (has_nationality) {
+          binder << nationality;
+        }
+        if (has_region) {
+          binder << region;
+        }
+        binder >> [cb](const drogon::orm::Result& r2) {
+          if (r2.size() == 0) {
+            send_error(cb, "Failed to create user", k500InternalServerError);
+            return;
+          }
+          const auto& row = r2[0];
+          Json::Value user;
+          user["id"] = row["id"].as<std::string>();
+          user["username"] = row["username"].as<std::string>();
+          user["email"] = row["email"].as<std::string>();
+          if (!row["birth_year"].isNull()) {
+            user["birth_year"] = row["birth_year"].as<int>();
+          }
+          if (!row["gender"].isNull()) {
+            user["gender"] = row["gender"].as<std::string>();
+          }
+          if (!row["nationality"].isNull()) {
+            user["nationality"] = row["nationality"].as<std::string>();
+          }
+          if (!row["region"].isNull()) {
+            user["region"] = row["region"].as<std::string>();
+          }
+          user["created_at"] = row["created_at"].as<std::string>();
+          auto resp = HttpResponse::newHttpJsonResponse(user);
+          resp->setStatusCode(k201Created);
+          cb(resp);
+        } >> [cb](const drogon::orm::DrogonDbException& e) {
+          send_error(cb, std::string("Database error: ") + e.base().what(),
+                     k500InternalServerError);
+        };
       },
       [cb](const drogon::orm::DrogonDbException& e) {
         send_error(cb, std::string("Database error: ") + e.base().what(),
                    k500InternalServerError);
       },
-      username, email, nationality);
+      username, email, nationality, region);
 }
 
 // ---------------------------------------------------------------------------
@@ -738,7 +599,7 @@ void AuthController::me(const HttpRequestPtr& req,
   auto db = app().getDbClient();
 
   db->execSqlAsync(
-      "SELECT id, username, email, birth_year, gender, nationality, "
+      "SELECT id, username, email, birth_year, gender, nationality, region, "
       "created_at, is_admin FROM users WHERE id = $1",
       [cb](const drogon::orm::Result& r) {
         if (r.size() == 0) {
@@ -761,6 +622,9 @@ void AuthController::me(const HttpRequestPtr& req,
         if (!row["nationality"].isNull()) {
           user["nationality"] = row["nationality"].as<std::string>();
         }
+        if (!row["region"].isNull()) {
+          user["region"] = row["region"].as<std::string>();
+        }
         user["is_admin"] = row["is_admin"].as<bool>();
         user["created_at"] = row["created_at"].as<std::string>();
 
@@ -778,10 +642,12 @@ void AuthController::me(const HttpRequestPtr& req,
 // ---------------------------------------------------------------------------
 // PATCH /me  (and PUT /me) – update the authenticated user's own profile
 //
-// Only `email`, `gender` and `password` may be modified. The `username` is the
-// user's identity (derived from the JWT) and is therefore never modifiable;
-// any attempt to change it (or any other field) is rejected with 400.
-// `password` is re-hashed with Argon2id before being stored.
+// Only `email`, `gender`, `password`, `nationality` and `region` may be
+// modified. The `username` is the user's identity (derived from the JWT) and
+// is therefore never modifiable; any attempt to change it (or any other
+// field) is rejected with 400. `password` is re-hashed with Argon2id before
+// being stored. The nullable reference columns `nationality` and `region`
+// additionally accept an explicit JSON null to clear them.
 // ---------------------------------------------------------------------------
 void AuthController::update_me(
     const HttpRequestPtr& req,
@@ -808,6 +674,12 @@ void AuthController::update_me(
   std::string email;
   std::string gender;
   std::string password;
+  // nationality / region have three states: absent (no change), engaged empty
+  // string (clear the column) or engaged value (new normalized code). The
+  // empty-string-as-clear sentinel is safe because normalized codes are never
+  // empty.
+  std::optional<std::string> nationality_update;
+  std::optional<std::string> region_update;
 
   for (auto it = json->begin(); it != json->end(); ++it) {
     const std::string key = it.name();
@@ -861,6 +733,42 @@ void AuthController::update_me(
         return;
       }
       has_password = true;
+    } else if (key == "nationality") {
+      if (it->isNull()) {
+        nationality_update = std::string("");
+      } else if (it->isString()) {
+        std::string value =
+            vote_backend::utils::normalize_nationality(it->asString());
+        if (value.empty()) {
+          send_error(cb,
+                     "nationality must be an ISO 3166-1 alpha-2 country code "
+                     "(e.g. 'DE')",
+                     k400BadRequest);
+          return;
+        }
+        nationality_update = value;
+      } else {
+        send_error(cb, "nationality must be a string or null", k400BadRequest);
+        return;
+      }
+    } else if (key == "region") {
+      if (it->isNull()) {
+        region_update = std::string("");
+      } else if (it->isString()) {
+        std::string value =
+            vote_backend::utils::normalize_region(it->asString());
+        if (value.empty()) {
+          send_error(cb,
+                     "region must be an ISO 3166-2 subdivision code "
+                     "(e.g. 'DE-BE')",
+                     k400BadRequest);
+          return;
+        }
+        region_update = value;
+      } else {
+        send_error(cb, "region must be a string or null", k400BadRequest);
+        return;
+      }
     } else {
       // username and every other field are not modifiable via this endpoint.
       send_error(cb, "field '" + key + "' is not modifiable", k400BadRequest);
@@ -868,7 +776,8 @@ void AuthController::update_me(
     }
   }
 
-  if (!has_email && !has_gender && !has_password) {
+  if (!has_email && !has_gender && !has_password && !nationality_update &&
+      !region_update) {
     send_error(cb, "No modifiable fields provided", k400BadRequest);
     return;
   }
@@ -887,65 +796,126 @@ void AuthController::update_me(
 
   auto db = app().getDbClient();
 
-  // The CASE expressions keep the existing column value when the corresponding
-  // placeholder is left empty (i.e. the field was not requested for update).
-  // All three modifiable columns are NOT NULL, so an empty string can safely
-  // serve as the "no change" sentinel.
-  std::string sql =
-      "UPDATE users SET "
-      "email = CASE WHEN $1 <> '' THEN $1 ELSE email END, "
-      "gender = CASE WHEN $2 <> '' THEN $2 ELSE gender END, "
-      "password_hash = CASE WHEN $3 <> '' THEN $3 ELSE password_hash END, "
-      "updated_at = NOW() "
-      "WHERE id = $4 "
-      "RETURNING id, username, email, birth_year, gender, nationality, "
-      "created_at, updated_at, is_admin";
-
+  // When a new nationality / region value was supplied (not a clearing
+  // request), verify it against the reference tables first so unknown codes
+  // fail with a precise 400 instead of as foreign-key violations on UPDATE
+  // (generic 500). Empty strings are the "nothing to check" sentinels.
   db->execSqlAsync(
-      sql,
-      [cb](const drogon::orm::Result& r) {
-        if (r.size() == 0) {
-          send_error(cb, "User not found", k404NotFound);
+      "SELECT ($1 = '' OR EXISTS(SELECT 1 FROM countries WHERE code = $1)) "
+      "AS country_ok, "
+      "($2 = '' OR EXISTS(SELECT 1 FROM regions WHERE code = $2)) "
+      "AS region_ok",
+      [cb, db, user_id, has_email, email, has_gender, gender, has_password,
+       pw_hash, nationality_update,
+       region_update](const drogon::orm::Result& r) {
+        if (!r[0]["country_ok"].as<bool>()) {
+          send_error(
+              cb, "nationality must be a known ISO 3166-1 alpha-2 country code",
+              k400BadRequest);
+          return;
+        }
+        if (!r[0]["region_ok"].as<bool>()) {
+          send_error(cb, "region must be a known ISO 3166-2 subdivision code",
+                     k400BadRequest);
           return;
         }
 
-        const auto& row = r[0];
-        Json::Value user;
-        user["id"] = row["id"].as<std::string>();
-        user["username"] = row["username"].as<std::string>();
-        user["email"] = row["email"].as<std::string>();
-        if (!row["birth_year"].isNull()) {
-          user["birth_year"] = row["birth_year"].as<int>();
+        // Build the SET clause dynamically from the provided fields only;
+        // engaged-but-empty nationality / region values clear their column.
+        std::string sql = "UPDATE users SET ";
+        int param_count = 0;
+        const auto placeholder = [&param_count]() {
+          return "$" + std::to_string(++param_count);
+        };
+        if (has_email) {
+          sql += "email = " + placeholder() + ", ";
         }
-        if (!row["gender"].isNull()) {
-          user["gender"] = row["gender"].as<std::string>();
+        if (has_gender) {
+          sql += "gender = " + placeholder() + ", ";
         }
-        if (!row["nationality"].isNull()) {
-          user["nationality"] = row["nationality"].as<std::string>();
+        if (has_password) {
+          sql += "password_hash = " + placeholder() + ", ";
         }
-        user["is_admin"] = row["is_admin"].as<bool>();
-        user["created_at"] = row["created_at"].as<std::string>();
-        user["updated_at"] = row["updated_at"].as<std::string>();
+        if (nationality_update) {
+          sql += nationality_update->empty()
+                     ? std::string("nationality = NULL, ")
+                     : "nationality = " + placeholder() + ", ";
+        }
+        if (region_update) {
+          sql += region_update->empty() ? std::string("region = NULL, ")
+                                        : "region = " + placeholder() + ", ";
+        }
+        sql += "updated_at = NOW() WHERE id = " + placeholder() +
+               " RETURNING id, username, email, birth_year, gender, "
+               "nationality, region, created_at, updated_at, is_admin";
 
-        auto resp = HttpResponse::newHttpJsonResponse(user);
-        resp->setStatusCode(k200OK);
-        cb(resp);
+        auto binder = *db << std::move(sql);
+        if (has_email) {
+          binder << email;
+        }
+        if (has_gender) {
+          binder << gender;
+        }
+        if (has_password) {
+          binder << pw_hash;
+        }
+        if (nationality_update && !nationality_update->empty()) {
+          binder << *nationality_update;
+        }
+        if (region_update && !region_update->empty()) {
+          binder << *region_update;
+        }
+        binder << user_id;
+
+        binder >> [cb](const drogon::orm::Result& r2) {
+          if (r2.size() == 0) {
+            send_error(cb, "User not found", k404NotFound);
+            return;
+          }
+
+          const auto& row = r2[0];
+          Json::Value user;
+          user["id"] = row["id"].as<std::string>();
+          user["username"] = row["username"].as<std::string>();
+          user["email"] = row["email"].as<std::string>();
+          if (!row["birth_year"].isNull()) {
+            user["birth_year"] = row["birth_year"].as<int>();
+          }
+          if (!row["gender"].isNull()) {
+            user["gender"] = row["gender"].as<std::string>();
+          }
+          if (!row["nationality"].isNull()) {
+            user["nationality"] = row["nationality"].as<std::string>();
+          }
+          if (!row["region"].isNull()) {
+            user["region"] = row["region"].as<std::string>();
+          }
+          user["is_admin"] = row["is_admin"].as<bool>();
+          user["created_at"] = row["created_at"].as<std::string>();
+          user["updated_at"] = row["updated_at"].as<std::string>();
+
+          auto resp = HttpResponse::newHttpJsonResponse(user);
+          resp->setStatusCode(k200OK);
+          cb(resp);
+        } >> [cb](const drogon::orm::DrogonDbException& e) {
+          std::string msg = e.base().what();
+          // The only unique constraint that can be violated here is
+          // the one on email (username is never updated).
+          if (msg.find("duplicate") != std::string::npos ||
+              msg.find("unique") != std::string::npos) {
+            send_error(cb, "email already in use", k409Conflict);
+            return;
+          }
+          send_error(cb, std::string("Database error: ") + msg,
+                     k500InternalServerError);
+        };
       },
       [cb](const drogon::orm::DrogonDbException& e) {
-        std::string msg = e.base().what();
-        // The only unique constraint that can be violated here is the one on
-        // email (username is never updated).
-        if (msg.find("duplicate") != std::string::npos ||
-            msg.find("unique") != std::string::npos) {
-          send_error(cb, "email already in use", k409Conflict);
-          return;
-        }
-        send_error(cb, std::string("Database error: ") + msg,
+        send_error(cb, std::string("Database error: ") + e.base().what(),
                    k500InternalServerError);
       },
-      has_email ? email : std::string(""),
-      has_gender ? gender : std::string(""),
-      has_password ? pw_hash : std::string(""), user_id);
+      nationality_update ? *nationality_update : std::string(""),
+      region_update ? *region_update : std::string(""));
 }
 
 // ---------------------------------------------------------------------------

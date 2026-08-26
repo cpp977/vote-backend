@@ -85,7 +85,7 @@ void UserController::get_user_by_id(
   // Query to retrieve all user columns except password_hash for the given ID
   const std::string sql =
       "SELECT id, username, email, birth_year, gender, "
-      "nationality, created_at, updated_at, is_admin, is_active "
+      "nationality, region, created_at, updated_at, is_admin, is_active "
       "FROM users WHERE id = $1 ORDER BY username";
 
   dbClient->execSqlAsync(
@@ -107,6 +107,9 @@ void UserController::get_user_by_id(
           userObj["birth_year"] = row.at("birth_year").as<int>();
           userObj["gender"] = row.at("gender").as<std::string>();
           userObj["nationality"] = row.at("nationality").as<std::string>();
+          if (!row.at("region").isNull()) {
+            userObj["region"] = row.at("region").as<std::string>();
+          }
           userObj["created_at"] = row.at("created_at").as<std::string>();
           userObj["updated_at"] = row.at("updated_at").as<std::string>();
           userObj["is_admin"] = row.at("is_admin").as<bool>();

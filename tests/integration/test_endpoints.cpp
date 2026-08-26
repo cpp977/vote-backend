@@ -1781,6 +1781,109 @@ TEST_CASE("Register accepts known country code (case-insensitive)") {
   }
 }
 
+TEST_CASE("Register rejects well-formed but unknown region with 400") {
+  nlohmann::json body = {{"username", "unknown_region_user"},
+                         {"email", "unknown_region@example.com"},
+                         {"password", "12345678"},
+                         {"region", "DE-QQ"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848, "/register",
+                                         body.dump());
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+
+  // Lowercase input must be normalized before the lookup, ending up equally
+  // rejected.
+  body["username"] = "unknown_region_user2";
+  body["email"] = "unknown_region2@example.com";
+  body["region"] = "de-qq";
+  auto resp2 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                          "/register", body.dump());
+  CHECK(resp2.status == 400);
+  CHECK(resp2.json_body.contains("error"));
+}
+
+TEST_CASE("Register accepts known region and echoes it normalized") {
+  nlohmann::json body = {{"username", "known_region_user"},
+                         {"email", "known_region@example.com"},
+                         {"password", "12345678"},
+                         {"nationality", "DE"},
+                         {"region", "de-be"}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848, "/register",
+                                         body.dump());
+  CHECK((resp.status == 201 || resp.status == 409));
+  if (resp.status == 201) {
+    CHECK(resp.json_body["region"] == "DE-BE");
+    CHECK(resp.json_body["nationality"] == "DE");
+  }
+}
+
+TEST_CASE("UpdateMe can set and clear region and nationality") {
+  const std::string token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "ref_change_user", "ref_change@example.com");
+
+  // Set region: normalized echo expected.
+  nlohmann::json body = {{"region", "us-ca"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["region"] == "US-CA");
+
+  // Clear region again via explicit null; the key disappears from the
+  // response because NULL columns are omitted.
+  nlohmann::json clear_body = {{"region", nullptr}};
+  auto cleared =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me",
+                                 clear_body.dump(), "application/json", token);
+  CHECK(cleared.status == 200);
+  CHECK_FALSE(cleared.json_body.contains("region"));
+
+  // Same round-trip for nationality.
+  nlohmann::json nat_body = {{"nationality", "fr"}};
+  auto nat_set =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me",
+                                 nat_body.dump(), "application/json", token);
+  CHECK(nat_set.status == 200);
+  CHECK(nat_set.json_body["nationality"] == "FR");
+
+  nlohmann::json nat_clear = {{"nationality", nullptr}};
+  auto nat_cleared =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me",
+                                 nat_clear.dump(), "application/json", token);
+  CHECK(nat_cleared.status == 200);
+  CHECK_FALSE(nat_cleared.json_body.contains("nationality"));
+}
+
+TEST_CASE("UpdateMe rejects unknown region with 400") {
+  const std::string token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "ref_unknown_user", "ref_unknown@example.com");
+  nlohmann::json body = {{"region", "DE-QQ"}};
+  auto resp =
+      test_helpers::http_request("PATCH", "127.0.0.1", 8848, "/me", body.dump(),
+                                 "application/json", token);
+  CHECK(resp.status == 400);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE("Stats endpoint validates optional region filter") {
+  // Well-formed but unassigned subdivision code -> rejected like nationality.
+  auto invalid = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                            "/questions/1/stats?region=ZZZZ");
+  CHECK(invalid.status == 400);
+
+  auto malformed = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                              "/questions/1/stats?region=USCA");
+  CHECK(malformed.status == 400);
+
+  // A known code must be accepted; without matching answers the usual
+  // insufficient_data envelope is returned instead of an error.
+  auto valid = test_helpers::http_request("GET", "127.0.0.1", 8848,
+                                          "/questions/1/stats?region=us-ca");
+  CHECK(valid.status == 200);
+  CHECK(valid.json_body.is_object());
+  CHECK(valid.json_body.contains("answers"));
+}
+
 // ---------------------------------------------------------------------------
 // Submission / approval workflow (Option B)
 //

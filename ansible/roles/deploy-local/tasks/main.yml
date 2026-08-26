@@ -54,6 +54,11 @@
     name: "{{ vote_backend_image_name }}"
     tag: "{{ vote_backend_image_tag }}"
     state: build
+    # Rebuilding unconditionally is opt-in: the ephemeral integration-test
+    # deployment enables it so the container always runs the current source,
+    # while the persistent deployment keeps skipping the build when an image
+    # with this tag already exists.
+    force: "{{ vote_backend_rebuild_image | default(false) }}"
     path: "{{ vote_backend_project_root }}"
     build:
       file: "{{ vote_backend_project_root }}/Containerfile"

@@ -264,6 +264,21 @@ INSERT INTO countries (code, name) VALUES
     ('ZM', 'Zambia'),
     ('ZW', 'Zimbabwe');
 
+-- ---------------------------------------------------------------------------
+-- Regions reference data (ISO 3166-2 subdivisions).
+-- Referenced by users.region below; the seed lives in 005_regions.sql (the
+-- full list is ~5000 rows). Each subdivision belongs to a country, so the
+-- table also records its ISO 3166-1 parent code. Created before the users
+-- table so the foreign key can be declared inline.
+-- ---------------------------------------------------------------------------
+CREATE TABLE regions (
+    code         VARCHAR(6) PRIMARY KEY,
+    name         TEXT NOT NULL,
+    country_code CHAR(2) NOT NULL REFERENCES countries (code) ON DELETE CASCADE
+);
+
+CREATE INDEX ix_regions_country ON regions (country_code);
+
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username TEXT NOT NULL UNIQUE,
@@ -277,6 +292,10 @@ CREATE TABLE users (
     -- list even if that path is bypassed. RESTRICT (instead of CASCADE /
     -- SET NULL) keeps user data intact while a country is still referenced.
     nationality CHAR(2) REFERENCES countries (code) ON DELETE RESTRICT,
+    -- ISO 3166-2 subdivision code (e.g. 'DE-BE'), optional like nationality;
+    -- must exist in the regions reference table above. Same normalization /
+    -- FK rationale as for nationality.
+    region VARCHAR(6) REFERENCES regions (code) ON DELETE RESTRICT,
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

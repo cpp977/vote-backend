@@ -39,6 +39,7 @@ set(
     src/utils/Config.cpp
     src/utils/BirthYearBucketer.cpp
     src/utils/Nationality.cpp
+    src/utils/Region.cpp
 )
 
 # main target
@@ -62,6 +63,7 @@ set(
     tests/UserIdHash_test.cpp
     tests/BirthYearBucketer_test.cpp
     tests/Nationality_test.cpp
+    tests/Region_test.cpp
 )
 
 set(
@@ -105,3 +107,4 @@ add_custom_target(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "checking format in src..."
 )
+

@@ -24,6 +24,9 @@
   vars:
     vote_backend_project_root: "{{ playbook_dir }}/../.."
     vote_backend_postgres_persistent: false
+    # Always rebuild the image so integration tests exercise the *current*
+    # source tree rather than a stale image left over from an earlier deploy.
+    vote_backend_rebuild_image: true
 
   roles:
     - role: deploy-local

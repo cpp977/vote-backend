@@ -24,6 +24,7 @@
 #include "vote-backend/utils/BirthYearBucketer.hpp"
 #include "vote-backend/utils/Config.hpp"
 #include "vote-backend/utils/Nationality.hpp"
+#include "vote-backend/utils/Region.hpp"
 #include "vote-backend/utils/UserIdHash.hpp"
 
 using drogon::orm::DrogonDbException;
@@ -354,8 +355,8 @@ void QuestionController::getQuestionsByLanguage(
 namespace {
 // Validates a tag filter value for the given tag key. The allowed keys mirror
 // exactly the tags the backend derives from the users table when an answer is
-// submitted: gender, nationality, and the birth year normalized into an
-// age-bucket range.
+// submitted: gender, nationality, region, and the birth year normalized into
+// an age-bucket range.
 bool isValidStatsTagValue(const std::string& key, const std::string& value) {
   if (key == "gender") {
     // Mirrors the CHECK constraint on users.gender.
@@ -365,6 +366,11 @@ bool isValidStatsTagValue(const std::string& key, const std::string& value) {
     // ISO 3166-1 alpha-2 country code (case-insensitive); the caller
     // normalizes the value to uppercase before storing it in the filter.
     return vote_backend::utils::is_valid_nationality(value);
+  }
+  if (key == "region") {
+    // ISO 3166-2 subdivision code (case-insensitive); the caller normalizes
+    // the value to uppercase before storing it in the filter.
+    return vote_backend::utils::is_valid_region(value);
   }
   if (key == "age_bucket") {
     // Bucket labels have the form "<start>-<end>" with non-negative integers.
@@ -403,11 +409,14 @@ void QuestionController::getStats(
     if (value.empty()) {
       return true;  // parameter absent or empty: do not filter on this tag
     }
-    // Nationality is normalized (e.g. "de" -> "DE") so the containment
-    // filter matches the canonical form stored in user_answers.tags.
+    // Nationality / region are normalized (e.g. "de" -> "DE",
+    // "de-be" -> "DE-BE") so the containment filter matches the canonical
+    // form stored in user_answers.tags.
     std::string normalized = value;
     if (std::string(tag_key) == "nationality") {
       normalized = vote_backend::utils::normalize_nationality(value);
+    } else if (std::string(tag_key) == "region") {
+      normalized = vote_backend::utils::normalize_region(value);
     }
     if (!isValidStatsTagValue(tag_key, normalized)) {
       Json::Value err;
@@ -422,6 +431,7 @@ void QuestionController::getStats(
   };
   if (!add_tag_filter("gender", "gender") ||
       !add_tag_filter("nationality", "nationality") ||
+      !add_tag_filter("region", "region") ||
       !add_tag_filter("age_bucket", "age_bucket")) {
     return;
   }
@@ -536,15 +546,16 @@ void QuestionController::getStatsMeta(
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(cb));
 
-  // Assembles the metadata document once the nationality values are known.
-  // Age labels are generated from the configured bucket width, so clients can
-  // always offer exactly the buckets the backend produces — even when the
-  // width changes via config.json.
+  // Assembles the metadata document once the nationality / region values are
+  // known. Age labels are generated from the configured bucket width, so
+  // clients can always offer exactly the buckets the backend produces — even
+  // when the width changes via config.json.
   const auto build_response =
       [callbackPtr,
        age_bucket_size = static_cast<Json::Int>(age_cfg.bucket_size),
        min_answers = static_cast<Json::Int>(stats_cfg.min_answers)](
-          const std::vector<std::string>& nationalities) {
+          const std::vector<std::string>& nationalities,
+          const std::vector<std::string>& regions) {
         Json::Value dimensions(Json::arrayValue);
 
         Json::Value gender(Json::objectValue);
@@ -575,6 +586,15 @@ void QuestionController::getStatsMeta(
         nationality["values"] = nationality_values;
         dimensions.append(nationality);
 
+        Json::Value region(Json::objectValue);
+        region["key"] = "region";
+        Json::Value region_values(Json::arrayValue);
+        for (const auto& code : regions) {
+          region_values.append(code);
+        }
+        region["values"] = region_values;
+        dimensions.append(region);
+
         Json::Value ret;
         ret["age_bucket_size"] = age_bucket_size;
         ret["min_answers"] = min_answers;
@@ -582,20 +602,28 @@ void QuestionController::getStatsMeta(
         (*callbackPtr)(HttpResponse::newHttpJsonResponse(ret));
       };
 
-  // Advertise only normalized country codes that actually occur among users,
-  // and only those with at least `min_answers` occurrences so the filter
-  // sheet does not offer segments that are guaranteed to be withheld by the
-  // privacy threshold anyway.
+  // Advertise only normalized codes that actually occur among users, and
+  // only those with at least `min_answers` occurrences so the filter sheet
+  // does not offer segments that are guaranteed to be withheld by the
+  // privacy threshold anyway. One query yields both dimension value lists;
+  // each placeholder is referenced exactly once (drogon binding limitation).
   auto dbClient = app().getDbClient();
   auto onResult = [build_response](const Result& r) {
-    std::vector<std::string> codes;
-    codes.reserve(r.size());
+    std::vector<std::string> nationalities;
+    std::vector<std::string> regions;
+    nationalities.reserve(r.size());
     for (const auto& row : r) {
-      if (!row["nationality"].isNull()) {
-        codes.push_back(row["nationality"].as<std::string>());
+      const auto dim = row["dim"].as<std::string>();
+      if (row["code"].isNull()) {
+        continue;
+      }
+      if (dim == "nationality") {
+        nationalities.push_back(row["code"].as<std::string>());
+      } else {
+        regions.push_back(row["code"].as<std::string>());
       }
     }
-    build_response(codes);
+    build_response(nationalities, regions);
   };
   auto onError = [callbackPtr](const DrogonDbException& e) {
     LOG_ERROR << fmt::format("getStatsMeta DB error: {}", e.base().what());
@@ -605,9 +633,14 @@ void QuestionController::getStatsMeta(
     (*callbackPtr)(resp);
   };
   dbClient->execSqlAsync(
-      "SELECT nationality FROM users WHERE nationality IS NOT NULL "
-      "GROUP BY nationality HAVING COUNT(*) >= $1 ORDER BY nationality",
-      onResult, onError, static_cast<int64_t>(stats_cfg.min_answers));
+      "SELECT 'nationality' AS dim, nationality AS code "
+      "FROM users WHERE nationality IS NOT NULL "
+      "GROUP BY nationality HAVING COUNT(*) >= $1 "
+      "UNION ALL "
+      "SELECT 'region', region FROM users WHERE region IS NOT NULL "
+      "GROUP BY region HAVING COUNT(*) >= $2",
+      onResult, onError, static_cast<int64_t>(stats_cfg.min_answers),
+      static_cast<int64_t>(stats_cfg.min_answers));
 }
 
 enum class FilterKind { Equal, GreaterEq, LessEq, ILike, InArray };
@@ -920,12 +953,12 @@ void QuestionController::answerQuestion(
       vote_backend::utils::user_id_hasher().hash(user_id, qid);
 
   // Tags are NOT accepted from the request body. They are derived from the
-  // authenticated user's profile in the users table: gender, nationality and
-  // the birth year. The birth year is normalized into a configurable
-  // age-bucket range (e.g. "25-29" for a 5-year bucket) so that the raw birth
-  // year is never stored — only the anonymized range.
+  // authenticated user's profile in the users table: gender, nationality,
+  // region and the birth year. The birth year is normalized into a
+  // configurable age-bucket range (e.g. "25-29" for a 5-year bucket) so that
+  // the raw birth year is never stored — only the anonymized range.
   dbClient->execSqlAsync(
-      "SELECT birth_year, gender, nationality "
+      "SELECT birth_year, gender, nationality, region "
       "FROM users WHERE id = $1::uuid",
       [=](const Result& profile) {
         if (profile.empty()) {
@@ -945,6 +978,9 @@ void QuestionController::answerQuestion(
         }
         if (!profile[0]["nationality"].isNull()) {
           tags_obj["nationality"] = profile[0]["nationality"].as<std::string>();
+        }
+        if (!profile[0]["region"].isNull()) {
+          tags_obj["region"] = profile[0]["region"].as<std::string>();
         }
         if (!profile[0]["birth_year"].isNull()) {
           int birth_year = profile[0]["birth_year"].as<int>();
