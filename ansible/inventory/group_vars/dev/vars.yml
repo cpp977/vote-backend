@@ -6,7 +6,7 @@ vote_backend_nginx_enabled: true
 
 vote_backend_acme_enabled: false
 
-#Set large limits for dev instance
+# Set large limits for dev instance
 
 vote_backend_password_reset_max_attempts: 50
 vote_backend_password_reset_rate_limit_window_minutes: 15
