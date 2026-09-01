@@ -26,6 +26,7 @@
     vote_backend_postgres_persistent: true
 
   roles:
+    - role: pre-steps
     - role: container-image
     - role: postgres
     - role: app
