@@ -1,0 +1,18 @@
+---
+# ansible-lint configuration for vote-backend
+#
+# Project conventions that differ from the default ansible-lint rules:
+#
+# - Role names use hyphens (e.g. build-native, db-maintenance, container-image).
+#   The role-name rule expects underscores only.
+# - Variables use the project-wide vote_backend_ prefix rather than a
+#   per-role prefix. The var-naming[no-role-prefix] rule does not accommodate
+#   this convention.
+# - Jinja2 whitespace trimming in command templates (acme.sh) is a style
+#   preference; the jinja[spacing] rule is non-blocking.
+
+skip_list:
+  - role-name
+  - var-naming
+  - yaml[line-length]
+  - jinja

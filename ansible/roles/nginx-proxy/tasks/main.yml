@@ -1,0 +1,32 @@
+---
+# nginx-proxy role
+# Manages the nginx reverse proxy container that terminates TLS and proxies
+# to vote-backend.
+# - Renders the nginx server block (nginx.conf.j2 → default.conf) with the
+#   configured server_name
+# - Copies the static nginx.conf (main configuration)
+# - Renders the nginx container quadlet
+# Requires the TLS certificate to already exist (managed by the tls-cert role
+# which runs before this role in the playbook).
+#
+# Service restart is handled by the systemd role (which runs after this role).
+
+- name: Render nginx reverse-proxy configuration (persistent deployment)
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ vote_backend_nginx_conf }}"
+    mode: "0644"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Copy nginx main config
+  ansible.builtin.copy:
+    src: nginx.conf
+    dest: "{{ ansible_facts['env']['HOME'] }}/.config/vote-backend/nginx.conf"
+    mode: "0644"
+
+- name: Install vote-backend-nginx quadlet (persistent deployment)
+  ansible.builtin.template:
+    src: "vote-backend-nginx@.container.j2"
+    dest: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd/vote-backend-nginx@.container"
+    mode: "0644"
+  when: vote_backend_postgres_persistent | default(false)

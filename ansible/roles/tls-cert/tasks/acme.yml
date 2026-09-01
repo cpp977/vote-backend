@@ -1,5 +1,5 @@
 ---
-# roles/deploy-local/tasks/acme.yml
+# roles/tls-cert/tasks/acme.yml
 # Let's Encrypt certificate issuance via acme.sh for the persistent deployment.
 #
 # This task file is included by main.yml only when BOTH of the following hold:
@@ -42,7 +42,11 @@
 # task idempotent.
 - name: Register acme.sh account email (rootful)
   ansible.builtin.command:
-    cmd: "{{ vote_backend_acme_install_dir }}/acme.sh --register-account --accountemail root@{{ vote_backend_acme_domain }} --home {{ vote_backend_acme_install_dir }}"
+    cmd: >-
+      {{ vote_backend_acme_install_dir }}/acme.sh
+      --register-account
+      --accountemail root@{{ vote_backend_acme_domain }}
+      --home {{ vote_backend_acme_install_dir }}
     creates: "{{ vote_backend_acme_install_dir }}/account-registered"
   become: true
 
@@ -105,7 +109,7 @@
 # {{ vote_backend_acme_domain }}.key -> privkey.pem. No --reloadcmd is used here:
 # this task runs rootful, and a rootful "systemctl --user" cannot reach the
 # unprivileged user's D-Bus scope (Operation not permitted). The nginx quadlet
-# is restarted separately (non-become) by the deploy-local role's existing
+# is restarted separately (non-become) by the systemd role's existing
 # restart task once the files are in place and chowned. Running as root writes
 # into the user-owned TLS directory; force the ownership back to the unprivileged
 # user afterwards so the rootless nginx container can read the files.
@@ -118,6 +122,7 @@
       --key-file {{ vote_backend_tls_dir }}/privkey.pem
   become: true
   register: acme_install_cert
+  changed_when: true
 
 # acme.sh runs as root, so the deployed files are owned by root. Chown them back
 # to the unprivileged user so the rootless nginx container (running as the

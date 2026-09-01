@@ -1,0 +1,131 @@
+---
+# roles/db-maintenance/tasks/main.yml
+#
+# only restarted/reloaded when something actually changed, via `when`.
+
+- name: Assert required variables are defined
+  ansible.builtin.assert:
+    that:
+      - vote_backend_container_user is defined
+      - vote_backend_db_container_name is defined
+      - vote_backend_db_name is defined
+      - vote_backend_db_maintenance_user is defined
+      - vote_backend_db_maintenance_password is defined
+      - vote_backend_rejected_questions_retention_days is defined
+      - vote_backend_db_maintenance_schedule is defined
+    fail_msg: >-
+      db-maintenance role requires vote_backend_db_* variables to be set in
+      the inventory (group_vars/host_vars)
+  tags: [maintenance, db, always]
+
+- name: Look up numeric UID for the container user
+  ansible.builtin.command: id -u {{ vote_backend_container_user }}
+  register: db_maintenance_uid_lookup
+  changed_when: false
+  tags: [maintenance, db]
+
+- name: Set fact for XDG_RUNTIME_DIR used by user-scope systemd calls
+  ansible.builtin.set_fact:
+    db_maintenance_xdg_runtime_dir: "/run/user/{{ db_maintenance_uid_lookup.stdout }}"
+  tags: [maintenance, db]
+
+- name: Check current linger status for container user
+  ansible.builtin.command: loginctl show-user {{ vote_backend_container_user }} --property=Linger
+  register: db_maintenance_linger_status
+  changed_when: false
+  failed_when: false
+  tags: [maintenance, db]
+
+- name: Enable lingering for container user (required for user-scope systemd timers to persist)
+  ansible.builtin.command: loginctl enable-linger {{ vote_backend_container_user }}
+  changed_when: true
+  when: "'Linger=yes' not in db_maintenance_linger_status.stdout"
+  tags: [maintenance, db]
+
+- name: Ensure user systemd directory exists
+  ansible.builtin.file:
+    path: "/home/{{ vote_backend_container_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0755"
+  tags: [maintenance, db]
+
+- name: Ensure local bin directory exists
+  ansible.builtin.file:
+    path: "/home/{{ vote_backend_container_user }}/.local/bin"
+    state: directory
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0755"
+  tags: [maintenance, db]
+
+- name: Deploy DB credentials env file for maintenance script
+  ansible.builtin.template:
+    src: db-maintenance.env.j2
+    dest: "/home/{{ vote_backend_container_user }}/.config/vote-backend/db-maintenance.env"
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0600"
+  register: db_maintenance_env_deploy
+  no_log: true  # avoid leaking db_maintenance_db_password into playbook output/logs
+  tags: [maintenance, db]
+
+- name: Deploy maintenance script
+  ansible.builtin.template:
+    src: db-maintenance.sh.j2
+    dest: "/home/{{ vote_backend_container_user }}/.local/bin/db-maintenance.sh"
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0755"
+  register: db_maintenance_script_deploy
+  tags: [maintenance, db]
+
+- name: Deploy systemd user service unit
+  ansible.builtin.template:
+    src: db-maintenance.service.j2
+    dest: "/home/{{ vote_backend_container_user }}/.config/systemd/user/db-maintenance.service"
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0644"
+  register: db_maintenance_service_unit_deploy
+  tags: [maintenance, db]
+
+- name: Deploy systemd user timer unit
+  ansible.builtin.template:
+    src: db-maintenance.timer.j2
+    dest: "/home/{{ vote_backend_container_user }}/.config/systemd/user/db-maintenance.timer"
+    owner: "{{ vote_backend_container_user }}"
+    mode: "0644"
+  register: db_maintenance_timer_unit_deploy
+  tags: [maintenance, db]
+
+- name: Reload systemd user daemon if either unit file changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  become: true
+  become_user: "{{ vote_backend_container_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ db_maintenance_xdg_runtime_dir }}"
+  when: db_maintenance_service_unit_deploy.changed or db_maintenance_timer_unit_deploy.changed
+  tags: [maintenance, db]
+
+- name: Enable and start the db-maintenance timer
+  ansible.builtin.systemd:
+    name: db-maintenance.timer
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ vote_backend_container_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ db_maintenance_xdg_runtime_dir }}"
+  tags: [maintenance, db]
+
+- name: Restart db-maintenance timer if script or credentials changed
+  ansible.builtin.systemd:
+    name: db-maintenance.timer
+    scope: user
+    state: restarted
+  become: true
+  become_user: "{{ vote_backend_container_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ db_maintenance_xdg_runtime_dir }}"
+  when: db_maintenance_script_deploy.changed or db_maintenance_env_deploy.changed
+  tags: [maintenance, db]

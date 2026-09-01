@@ -1,0 +1,6 @@
+[Unit]
+Description=Database maintenance tasks (managed by Ansible)
+
+[Service]
+Type=oneshot
+ExecStart={{ '/home/' + vote_backend_container_user + '/.local/bin/db-maintenance.sh' }}

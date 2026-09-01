@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  description: >-
+    Manages the nginx reverse proxy container that terminates TLS and proxies
+    to vote-backend. Renders the nginx server block and main config, and
+    deploys the nginx container quadlet.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies:
+  - role: app

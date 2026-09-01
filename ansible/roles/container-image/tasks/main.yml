@@ -1,0 +1,24 @@
+---
+# container-image role
+# Builds the Podman container image for vote-backend.
+# - vote_backend_build_on_target=true (default): builds on the target host
+#   from the checked-out repository.
+# - vote_backend_build_on_target=false: builds on localhost and pushes to the
+#   remote host (used by deploy.yml for SSH targets without the repo).
+
+- name: Build and push container image to remote host (build_on_target=false)
+  ansible.builtin.import_tasks: push-remote.yml
+  when: not (vote_backend_build_on_target | default(true))
+
+- name: Build vote-backend container image (on target, build_on_target=true)
+  containers.podman.podman_image:
+    name: "{{ vote_backend_image_name }}"
+    tag: "{{ vote_backend_image_tag }}"
+    state: build
+    force: "{{ vote_backend_rebuild_image | default(false) }}"
+    path: "{{ vote_backend_project_root }}"
+    build:
+      file: "{{ vote_backend_project_root }}/Containerfile"
+      force_rm: true
+  register: image_build
+  when: vote_backend_build_on_target | default(true)

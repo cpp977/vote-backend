@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  description: >-
+    Manages the vote-backend application container. Generates the JWT secret
+    key, renders config.json from vaulted DB credentials, and deploys the
+    vote-backend@{{ tag }} quadlet.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies:
+  - role: postgres

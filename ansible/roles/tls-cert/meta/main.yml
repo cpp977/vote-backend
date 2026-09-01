@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  description: >-
+    Manages TLS certificates for the nginx reverse proxy.
+    Generates self-signed certificates or obtains Let's Encrypt certificates
+    via acme.sh (dns-01 or http-01 challenge).
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

@@ -1,0 +1,181 @@
+---
+# roles/db-roles/tasks/main.yml
+#
+# Creates the application, maintenance, and migration Postgres roles.
+# Idempotent: safe to re-run against an already-initialized database
+# (manual invocation via manage-db-roles.yml) and safe against a
+# freshly-started, empty database (automatic invocation from the
+# integration-test playbook).
+#
+# Expects the following variables from inventory (group_vars/host_vars):
+#
+#   vote_backend_db_container_name       - name of the running Postgres container
+#   vote_backend_db_postgres_password   - password for the `postgres` superuser
+#   vote_backend_db_name                   - database name
+#   vote_backend_db_user / vote_backend_db_password             - application (Drogon) role
+#   vote_backend_db_maintenance_user / vote_backend_db_maintenance_password  - maintenance role
+#   vote_backend_db_migration_user / vote_backend_db_migration_password            - migration role
+
+- name: Assert required variables are defined
+  ansible.builtin.assert:
+    that:
+      - vote_backend_db_container_name is defined
+      - vote_backend_db_postgres_password is defined
+      - vote_backend_db_name is defined
+      - vote_backend_db_user is defined
+      - vote_backend_db_password is defined
+      - vote_backend_db_maintenance_user is defined
+      - vote_backend_db_maintenance_password is defined
+      - vote_backend_db_migration_user is defined
+      - vote_backend_db_migration_password is defined
+    fail_msg: >-
+      db-roles role requires all db variables to
+      be set in the inventory.
+  tags: [db-roles, always]
+
+- name: Wait for Postgres to accept connections
+  ansible.builtin.command: >
+    podman exec {{ vote_backend_db_container_name }} pg_isready -U postgres
+  register: pg_ready
+  until: pg_ready.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  tags: [db-roles]
+
+# --- helper: run any psql command against the container as postgres ---
+# (used inline below rather than as a real reusable block, since Ansible
+# has no first-class "function" concept — kept as a comment for clarity)
+#
+#   podman exec -e PGPASSWORD=<vote_backend_db_postgres_password>
+#     <container> psql -U postgres -d <db> -tAc "<sql>"
+
+# =========================== application role ===========================
+
+- name: Check if app role exists
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ vote_backend_db_user }}'"
+  register: app_role_check
+  changed_when: false
+  no_log: true
+  tags: [db-roles]
+
+- name: Create app role if missing
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -c
+      - "CREATE ROLE {{ vote_backend_db_user }} WITH LOGIN PASSWORD '{{ vote_backend_db_password }}';"
+  when: app_role_check.stdout is not search("1")
+  no_log: true
+  tags: [db-roles]
+
+- name: Grant privileges to app role
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
+  loop:
+    - "GRANT CONNECT ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_user }};"
+    - "GRANT USAGE ON SCHEMA public TO {{ vote_backend_db_user }};"
+    - "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {{ vote_backend_db_user }};"
+    - "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ vote_backend_db_user }};"
+    - "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {{ vote_backend_db_user }};"
+    - "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {{ vote_backend_db_user }};"
+  no_log: true
+  changed_when: true
+  tags: [db-roles]
+
+# ============================ maintenance role ============================
+
+- name: Check if maintenance role exists
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ vote_backend_db_maintenance_user }}'"
+  register: maintenance_role_check
+  changed_when: false
+  no_log: true
+  tags: [db-roles]
+
+- name: Create maintenance role if missing
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -c
+      - "CREATE ROLE {{ vote_backend_db_maintenance_user }} WITH LOGIN PASSWORD '{{ vote_backend_db_maintenance_password }}';"
+  when: maintenance_role_check.stdout is not search("1")
+  no_log: true
+  tags: [db-roles]
+
+- name: Grant privileges to maintenance role
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
+  loop:
+    - "GRANT CONNECT ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_maintenance_user }};"
+    - "GRANT USAGE ON SCHEMA public TO {{ vote_backend_db_maintenance_user }};"
+    - "GRANT SELECT, DELETE ON questions TO {{ vote_backend_db_maintenance_user }};"
+  no_log: true
+  changed_when: true
+  tags: [db-roles]
+
+# ============================= migration role =============================
+
+- name: Check if migration role exists
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ vote_backend_db_migration_user }}'"
+  register: migration_role_check
+  changed_when: false
+  no_log: true
+  tags: [db-roles]
+
+- name: Create migration role if missing
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -c
+      - "CREATE ROLE {{ vote_backend_db_migration_user }} WITH LOGIN PASSWORD '{{ vote_backend_db_migration_password }}';"
+  when: migration_role_check.stdout is not search("1")
+  no_log: true
+  tags: [db-roles]
+
+- name: Grant schema-level privileges to migration role
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
+  loop:
+    - "GRANT CONNECT ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_migration_user }};"
+    - "GRANT ALL ON SCHEMA public TO {{ vote_backend_db_migration_user }};"
+    - "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ vote_backend_db_migration_user }};"
+    - "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{ vote_backend_db_migration_user }};"
+  no_log: true
+  changed_when: true
+  tags: [db-roles]

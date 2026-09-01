@@ -12,9 +12,9 @@
       "rdbms": "postgresql",
       "host": "drogon-postgres.dns.podman",
       "port": 5432,
-      "dbname": "vote",
-      "user": "postgres",
-      "passwd": "secret",
+      "dbname": "{{ vote_backend_db_name }}",
+      "user": "{{ vote_backend_db_user }}",
+      "passwd": "{{ vote_backend_db_password }}",
       "is_fast": false,
       "number_of_connections": 1,
       "timeout": -1.0,
@@ -33,7 +33,7 @@
       "display_local_time": false
     }
   },
-  "jwt_secret": "{{ vote_backend_secret_key }}",
+  "jwt_secret": "{{ vote_backend_jwt_secret_key }}",
   "jwt_access_token_expiry_minutes": 15,
   "jwt_refresh_token_expiry_days": 7,
   "resend_api_url": "{{ vote_backend_resend_api_url | default('https://api.resend.com') }}",

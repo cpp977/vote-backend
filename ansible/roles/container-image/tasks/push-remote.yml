@@ -1,0 +1,53 @@
+---
+# Remote deployment: build the image on localhost and push it to the remote
+# target host. Used when vote_backend_build_on_target is false (the target host
+# does not have the repository checked out).
+
+- name: Build vote-backend container image (localhost)
+  containers.podman.podman_image:
+    name: "{{ vote_backend_image_name }}"
+    tag: "{{ vote_backend_image_tag }}"
+    state: build
+    path: "{{ vote_backend_project_root }}"
+    build:
+      file: "{{ vote_backend_project_root }}/Containerfile"
+      force_rm: true
+  delegate_to: localhost
+  register: local_image_build
+
+- name: Create directory for image tarball
+  ansible.builtin.file:
+    path: "/tmp/{{ vote_backend_image_registry }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+
+- name: Export image to tarball
+  ansible.builtin.command: >
+    podman save -o /tmp/{{ vote_backend_image_name }}.tar
+    {{ vote_backend_image_name }}:{{ vote_backend_image_tag }}
+  delegate_to: localhost
+  changed_when: true
+
+- name: Copy image tarball to remote host
+  ansible.builtin.copy:
+    src: "/tmp/{{ vote_backend_image_name }}.tar"
+    dest: "~/{{ vote_backend_image_name }}.tar"
+    mode: "0644"
+
+- name: Remove local image tarball
+  ansible.builtin.file:
+    path: "/tmp/{{ vote_backend_image_name }}.tar"
+    state: absent
+  delegate_to: localhost
+
+- name: Load image on remote host
+  ansible.builtin.command: >
+    podman load -i ~/{{ vote_backend_image_name }}.tar
+  changed_when: true
+
+- name: Copy quadlets directory to remote host
+  ansible.builtin.copy:
+    src: "{{ vote_backend_project_root }}/quadlets"
+    dest: "~/"
+    mode: "0644"

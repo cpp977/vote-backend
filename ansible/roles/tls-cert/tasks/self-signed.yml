@@ -1,0 +1,24 @@
+---
+# Generate a self-signed TLS certificate for local development.
+# The certificate and key are written to vote_backend_tls_dir, which the
+# nginx container mounts read-only as /etc/nginx/tls.
+
+- name: Generate TLS private key (self-signed)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ vote_backend_tls_dir }}/privkey.pem 2048"
+    creates: "{{ vote_backend_tls_dir }}/privkey.pem"
+
+- name: Generate self-signed TLS certificate
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -x509 -days 365
+      -key {{ vote_backend_tls_dir }}/privkey.pem
+      -out {{ vote_backend_tls_dir }}/fullchain.pem
+      -subj "/CN={{ vote_backend_nginx_server_name }}"
+      -addext "subjectAltName=DNS:{{ vote_backend_nginx_server_name }},IP:127.0.0.1"
+    creates: "{{ vote_backend_tls_dir }}/fullchain.pem"
+
+- name: Restrict TLS private key permissions
+  ansible.builtin.file:
+    path: "{{ vote_backend_tls_dir }}/privkey.pem"
+    mode: "0600"

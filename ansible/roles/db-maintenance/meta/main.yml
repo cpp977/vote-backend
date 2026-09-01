@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  description: >-
+    Deploys the database maintenance script, systemd user service/timer, and
+    credentials for vote-backend. Runs independent cleanup tasks (e.g. purging
+    rejected questions) at a configurable schedule.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

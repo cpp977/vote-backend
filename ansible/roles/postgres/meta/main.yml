@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  description: >-
+    Manages the PostgreSQL database container for vote-backend.
+    Creates the podman secret, renders the drogon-postgres quadlet (persistent
+    or ephemeral), stages pg_hba.conf, and copies SQL init scripts.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

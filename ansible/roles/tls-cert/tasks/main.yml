@@ -1,0 +1,26 @@
+---
+# tls-cert role
+# Manages TLS certificates for the nginx reverse proxy.
+# - Self-signed: generates privkey.pem and fullchain.pem locally
+# - ACME: obtains a Let's Encrypt certificate via acme.sh (rootful)
+# The certificate is deployed into vote_backend_tls_dir, which the nginx
+# container mounts read-only as /etc/nginx/tls.
+
+- name: Ensure TLS directory exists (persistent deployment)
+  ansible.builtin.file:
+    path: "{{ vote_backend_tls_dir }}"
+    state: directory
+    mode: "0700"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Generate self-signed TLS certificate (persistent, no ACME)
+  ansible.builtin.import_tasks: self-signed.yml
+  when:
+    - vote_backend_postgres_persistent | default(false)
+    - not (vote_backend_acme_enabled | default(false))
+
+- name: Obtain Let's Encrypt certificate via acme.sh (persistent, ACME)
+  ansible.builtin.import_tasks: acme.yml
+  when:
+    - vote_backend_postgres_persistent | default(false)
+    - vote_backend_acme_enabled | default(false)

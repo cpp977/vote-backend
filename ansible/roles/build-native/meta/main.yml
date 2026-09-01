@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  description: >-
+    Ensures build prerequisites, configures with CMake, builds Debug and Release
+    configurations, runs unit tests via ctest, and checks code formatting
+    with clang-format for vote-backend.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

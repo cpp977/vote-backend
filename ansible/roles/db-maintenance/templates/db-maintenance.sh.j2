@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Managed by Ansible — roles/db-maintenance
+# Do not edit by hand; changes will be overwritten on next deploy.
+#
+# Independent maintenance tasks: one task's failure does not block the others.
+set -uo pipefail
+
+ENV_FILE="{{ '/home/' + vote_backend_container_user + '/.config/vote-backend/db-maintenance.env' }}"
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+PSQL() {
+    podman exec -i "$DB_MAINTENANCE_CONTAINER" \
+        env PGPASSWORD="$PGPASSWORD" \
+        psql -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 -c "$1"
+}
+
+run_task() {
+    local name="$1" sql="$2"
+    echo "[$(date -Is)] running: $name"
+    if PSQL "$sql"; then
+        echo "[$(date -Is)] ok: $name"
+    else
+        echo "[$(date -Is)] FAILED: $name" >&2
+        # deliberately no exit — other tasks should still run
+    fi
+}
+
+run_task "cleanup_rejected_questions" \
+    "DELETE FROM questions WHERE submission_status = 'rejected' AND reviewed_at < now() - interval '${DB_MAINTENANCE_RETENTION_DAYS} days';"
+
+# Add further independent maintenance tasks below using the same run_task
+# pattern. Note: vote_tokens pruning (if ever added) is a storage/performance
+# concern, not a privacy requirement — see privacy_implementation_tasks.md
+# Section 8 for context before adding it here.
+
+echo "[$(date -Is)] maintenance run complete"

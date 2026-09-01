@@ -1,0 +1,64 @@
+---
+# postgres role
+# Manages the PostgreSQL database container for vote-backend.
+# - Creates the podman secret for the bootstrap superuser password
+# - Renders the drogon-postgres quadlet (persistent or ephemeral based on
+#   vote_backend_postgres_persistent)
+# - Stages pg_hba.conf for deployment into the running container
+# - Copies SQL init scripts and renders 006_users.sql (ephemeral only)
+#
+# Service restart and pg_hba.conf deployment into the running container are
+# handled by the systemd role (which runs after this role), because podman cp
+# requires the container to be running.
+
+- name: Ensure podman secret holds the bootstrap superuser password
+  containers.podman.podman_secret:
+    name: vote_db_postgres_password
+    data: "{{ vote_backend_db_postgres_password }}"
+    state: present
+    force: true
+  no_log: true
+
+- name: Ensure quadlet directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd"
+    state: directory
+    mode: "0755"
+
+- name: Render drogon-postgres quadlet (ephemeral or persistent)
+  ansible.builtin.template:
+    src: drogon-postgres.container.j2
+    dest: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd/drogon-postgres.container"
+    mode: "0644"
+
+# NOTE: The PostgreSQL data directory is intentionally NOT pre-created by
+# Ansible. After the container starts, PostgreSQL chowns the bind-mounted
+# directory to its in-namespace UID with mode 0700; the host user can then no
+# longer access it, which would cause a "permission denied" error on a later
+# run when Ansible stats/creates the path. Podman creates the bind-mount source
+# directory automatically when the container starts, so we rely on that instead
+# of managing the directory from the playbook (use `podman unshare` to fix an
+# already-chowned directory manually).
+
+- name: Copy SQL init scripts to a portable location
+  ansible.builtin.copy:
+    src: "{{ vote_backend_project_root }}/sql/"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/sql/"
+    mode: "0644"
+    directory_mode: "0755"
+  when: vote_backend_build_on_target | default(true)
+
+# - name: Render 006_users.sql which creates postgres users
+#   ansible.builtin.template:
+#     src: 006_users.sql.j2
+#     dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/sql/006_users.sql"
+#     mode: "0644"
+#   no_log: true
+#   when: not (vote_backend_postgres_persistent | default(false))
+
+- name: Stage pg_hba.conf for deployment into the container
+  ansible.builtin.copy:
+    src: pg_hba.conf
+    dest: /tmp/pg_hba.conf.staged
+    mode: "0600"
+  register: postgres_pg_hba_staged

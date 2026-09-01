@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  description: >-
+    Orchestrates the systemd user-scope service lifecycle for vote-backend.
+    Installs the network quadlet and containers.conf, reloads the daemon,
+    restarts services in dependency order (postgres, app, nginx), deploys
+    pg_hba.conf into the running postgres container, and tears down stale
+    services when switching deployment modes. Should be listed LAST in the
+    playbook.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  description: >-
+    Builds and manages the Podman container image for vote-backend.
+    When vote_backend_build_on_target is true, builds on the target host from
+    the checked-out repository. When false (remote SSH host without the repo),
+    builds on localhost and pushes to the remote.
+  author: vote-backend
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

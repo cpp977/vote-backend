@@ -1,11 +1,12 @@
-# nginx reverse proxy for vote-backend (copied into place by the deploy-local
-# role). Terminates TLS for vote-backend.local and proxies plain HTTP to the
-# backend container by its name on the vote.network.
-# Add "vote-backend.local <host-ip>" to /etc/hosts so the name resolves.
+# nginx reverse proxy for vote-backend (rendered by the nginx-proxy role).
+# Terminates TLS for {{ vote_backend_nginx_server_name }} and proxies plain
+# HTTP to the backend container by its name on the vote.network.
+# Resolve the name to the host IP (e.g. via /etc/hosts or public DNS) so the
+# name resolves to this host.
 
 server {
     listen 443 ssl;
-    server_name vote-backend.local;
+    server_name {{ vote_backend_nginx_server_name }};
 
     ssl_certificate     /etc/nginx/tls/fullchain.pem;
     ssl_certificate_key /etc/nginx/tls/privkey.pem;

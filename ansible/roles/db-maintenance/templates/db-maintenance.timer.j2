@@ -1,0 +1,9 @@
+[Unit]
+Description=Timer for database maintenance tasks (managed by Ansible)
+
+[Timer]
+OnCalendar={{ vote_backend_db_maintenance_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=default.target

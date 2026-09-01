@@ -1,6 +1,6 @@
 # containers/drogon-postgres.container
 # Podman quadlet definition for the PostgreSQL database.
-# Rendered by the deploy-local role from this template.
+# Rendered by the postgres role from this template.
 #
 # When `vote_backend_postgres_persistent` is true the PostgreSQL data directory
 # is bind-mounted from {{ vote_backend_postgres_data_dir }} so that the database
@@ -18,9 +18,17 @@
 [Container]
 ContainerName=drogon-postgres
 Image=docker.io/library/postgres:18-trixie
-Environment=POSTGRES_PASSWORD=secret
-Environment=POSTGRES_DB=vote
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+Environment=POSTGRES_DB={{ vote_backend_db_name }}
+# Fixed bootstrap superuser name: it exists only to run the init scripts.
+# Application/maintenance users and all grants are managed by a separate
+# Ansible role, so this container knows nothing about them.
+Environment=POSTGRES_USER=postgres
 Environment=PGDATA=/var/lib/postgresql/data/18
+# Sole credential inside this container: consumed by the image entrypoint
+# during first initialization only. Mounted read-only under /run/secrets,
+# invisible to `systemctl --user cat` and `podman inspect`.
+Secret=vote_db_postgres_password,target=postgres-password
 Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
 {% if vote_backend_postgres_persistent %}
 Volume=%h/.local/share/vote-backend/postgres/18:/var/lib/postgresql/data/18:Z

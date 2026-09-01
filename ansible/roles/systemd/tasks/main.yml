@@ -1,0 +1,141 @@
+---
+# systemd role — tasks
+# Orchestrates the systemd user-scope service lifecycle for vote-backend.
+# This role should be listed LAST in the playbook, after all file-deployment
+# roles (container-image, postgres, app, tls-cert, nginx-proxy) have rendered
+# their quadlet files.
+#
+# Flow:
+#   1. Stop the vote-network service (disconnects running containers)
+#   2. Reinstall the network quadlet
+#   3. Ensure containers.conf (netavark firewall driver, rootless port forwarder)
+#   4. daemon_reload (picks up all quadlets: network, postgres, app, nginx)
+#   5. Restart drogon-postgres (recreates container on new network)
+#   6. Deploy pg_hba.conf into the running container + reload
+#   7. Restart vote-backend@{{ tag }}
+#   8. Restart or stop vote-backend-nginx@{{ tag }} (persistent vs ephemeral)
+#   9. Remove stale nginx quadlet (ephemeral mode)
+
+# --- Step 1-2: Network quadlet management ---
+# Stop the network service first so running containers release the old network.
+- name: Stop vote-network service
+  ansible.builtin.systemd_service:
+    name: vote-network.service
+    state: stopped
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  ignore_errors: True
+
+- name: Remove vote-network quadlet
+  containers.podman.podman_quadlet:
+    state: absent
+    name:
+      - vote.network
+
+- name: Install vote.network quadlet
+  containers.podman.podman_quadlet:
+    state: present
+    src: "{{ vote_backend_quadlet_dir }}/vote.network"
+
+# --- Step 3: containers.conf ---
+- name: Ensure containers.conf disables netavark firewall (nftables incompatibility)
+  ansible.builtin.copy:
+    dest: "{{ ansible_facts['env']['HOME'] }}/.config/containers/containers.conf"
+    content: |
+      [network]
+      firewall_driver = "none"
+      {% if vote_backend_nginx_enabled | default(false) %}
+      rootless_port_forwarder = "pasta"
+      {% endif %}
+    mode: "0644"
+
+# --- Step 4: daemon_reload ---
+# Restart (not merely start) the services so their containers are recreated
+# from the *current* quadlet. `systemctl start` is a no-op for an already
+# running container, which would otherwise leave a stale container behind
+# (e.g. the wrong port exposure or data-dir mapping) when switching between
+# the persistent (nginx) and ephemeral (test) deployments. The podman quadlet
+# units use `podman run --replace`, so a restart reliably recreates the
+# container with the latest quadlet configuration.
+- name: Reload systemd user daemon to pick up new quadlets
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+# --- Step 5-6: Restart postgres and deploy pg_hba.conf ---
+- name: Restart drogon-postgres service
+  ansible.builtin.systemd_service:
+    name: drogon-postgres.service
+    state: restarted
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+# pg_hba.conf was staged to /tmp by the postgres role. Copy it into the
+# running container and reload PostgreSQL to apply it.
+- name: Copy pg_hba.conf into the container
+  ansible.builtin.command: >
+    podman cp /tmp/pg_hba.conf.staged {{ vote_backend_db_container_name }}:/var/lib/postgresql/data/{{ vote_backend_postgresql_version }}/pg_hba.conf
+  changed_when: true
+
+- name: Fix ownership and permissions inside the container
+  ansible.builtin.command: >
+    podman exec {{ vote_backend_db_container_name }} sh -c
+    'chown postgres:postgres
+    "/var/lib/postgresql/data/{{ vote_backend_postgresql_version }}/pg_hba.conf"
+    && chmod 600
+    "/var/lib/postgresql/data/{{ vote_backend_postgresql_version }}/pg_hba.conf"'
+  changed_when: true
+
+- name: Reload PostgreSQL config
+  ansible.builtin.command: >
+    podman exec -u postgres {{ vote_backend_db_container_name }}
+    pg_ctl reload -D /var/lib/postgresql/data/{{ vote_backend_postgresql_version }}
+  changed_when: true
+
+- name: Adjust vote-backend config permissions
+  ansible.builtin.command: >
+    podman run -u root --rm --name vote-backend-permissions -v {{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/vote-backend:/etc/vote --entrypoint '["chown"]' {{ vote_backend_image_name }}:{{ vote_backend_image_tag }} appuser:appuser /etc/vote/config.json
+
+# --- Step 7: Restart vote-backend ---
+- name: Restart vote-backend service (template instance)
+  ansible.builtin.systemd_service:
+    name: "vote-backend@{{ vote_backend_image_tag }}.service"
+    state: restarted
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+
+# --- Step 8-9: Restart or tear down nginx ---
+- name: Restart vote-backend-nginx reverse proxy (persistent deployment)
+  ansible.builtin.systemd_service:
+    name: "vote-backend-nginx@{{ vote_backend_image_tag }}.service"
+    state: restarted
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  when: vote_backend_postgres_persistent | default(false)
+
+- name: Stop and disable vote-backend-nginx reverse proxy (ephemeral deployment)
+  ansible.builtin.systemd_service:
+    name: "vote-backend-nginx@{{ vote_backend_image_tag }}.service"
+    state: stopped
+    enabled: false
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  failed_when: false
+  when: "not (vote_backend_postgres_persistent | default(false))"
+
+- name: Remove vote-backend-nginx quadlet (ephemeral deployment)
+  ansible.builtin.file:
+    path: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.config') }}/containers/systemd/vote-backend-nginx@.container"
+    state: absent
+  when: "not (vote_backend_postgres_persistent | default(false))"
