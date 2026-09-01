@@ -14,7 +14,7 @@
       "port": 5432,
       "dbname": "{{ vote_backend_db_name }}",
       "user": "{{ vote_backend_db_user }}",
-      "passwd": "{{ vote_backend_db_password }}",
+      "passwd": {{ vote_backend_db_password | to_json }},
       "is_fast": false,
       "number_of_connections": 1,
       "timeout": -1.0,
