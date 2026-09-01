@@ -29,4 +29,10 @@
     vote_backend_rebuild_image: true
 
   roles:
-    - role: deploy-local
+    - role: container-image
+    - role: postgres
+    - role: app
+    - role: db-maintenance
+    - role: systemd
+    - role: db-users
+

@@ -7,11 +7,12 @@
 #
 # This playbook deploys a persistent, production-like setup:
 #   1. Builds the Containerfile image
-#   2. Installs quadlets (network, postgres, app) into the user systemd instance
+#   2. Installs quadlets (network, postgres, app, nginx) into the user systemd
+#      instance
 #   3. The PostgreSQL data directory is bind-mounted from
 #      ~/.local/share/vote-backend/postgres/18 so data survives container restarts
 #   4. Reloads the user systemd daemon
-#   5. Starts and enables the database and backend services
+#   5. Starts and enables the database, backend, and nginx services
 #
 # Use deploy-local-test.yml for an ephemeral deployment intended for integration
 # testing (the database is reset on every (re)deploy).
@@ -25,4 +26,11 @@
     vote_backend_postgres_persistent: true
 
   roles:
-    - role: deploy-local
+    - role: container-image
+    - role: postgres
+    - role: app
+    - role: tls-cert
+    - role: nginx-proxy
+    - role: db-maintenance
+    - role: systemd
+    - role: db-users
