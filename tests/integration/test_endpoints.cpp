@@ -71,6 +71,45 @@ TEST_CASE("GetAnswerOptions is accessible without authentication") {
   CHECK(resp.json_body.size() == 5);
 }
 
+TEST_CASE("GET /countries returns all countries (unrestricted)") {
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/countries",
+                                         "", "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() > 0);
+
+  // Verify each country object has code and name
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i].contains("code"));
+    CHECK(resp.json_body[i].contains("name"));
+    CHECK(resp.json_body[i]["code"].is_string());
+    CHECK(resp.json_body[i]["name"].is_string());
+    CHECK(!resp.json_body[i]["code"].empty());
+    CHECK(!resp.json_body[i]["name"].empty());
+  }
+}
+
+TEST_CASE("GET /regions returns all regions (unrestricted)") {
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/regions",
+                                         "", "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() > 0);
+
+  // Verify each region object has code, name, and country_code
+  for (size_t i = 0; i < resp.json_body.size(); ++i) {
+    CHECK(resp.json_body[i].contains("code"));
+    CHECK(resp.json_body[i].contains("name"));
+    CHECK(resp.json_body[i].contains("country_code"));
+    CHECK(resp.json_body[i]["code"].is_string());
+    CHECK(resp.json_body[i]["name"].is_string());
+    CHECK(resp.json_body[i]["country_code"].is_string());
+    CHECK(!resp.json_body[i]["code"].empty());
+    CHECK(!resp.json_body[i]["name"].empty());
+    CHECK(!resp.json_body[i]["country_code"].empty());
+  }
+}
+
 TEST_CASE("GetQuestionsByLanguage returns only English questions") {
   auto resp = test_helpers::http_request(
       "GET", "127.0.0.1", 8848, "/questions/lang/en", "", "application/json",

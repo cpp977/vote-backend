@@ -286,3 +286,93 @@ void UserController::delete_user(
       },
       user_id);
 }
+
+void UserController::list_countries(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  // Query to retrieve all countries
+  const std::string sql = "SELECT code, name FROM countries ORDER BY name";
+
+  dbClient->execSqlAsync(
+      sql,
+      [callbackPtr](const Result& r) {
+        try {
+          Json::Value arr(Json::arrayValue);
+          for (const auto& row : r) {
+            // Return both code and name fields
+            Json::Value countryObj;
+            countryObj["code"] = row.at("code").as<std::string>();
+            countryObj["name"] = row.at("name").as<std::string>();
+            arr.append(countryObj);
+          }
+          (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+        } catch (const std::exception& e) {
+          LOG_ERROR << fmt::format("UserController::list_countries failed: {}",
+                                   e.what());
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (*callbackPtr)(resp);
+        }
+      },
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("UserController::list_countries DB error: {}",
+                                 e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      });
+}
+
+void UserController::list_regions(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(cb));
+
+  // Query to retrieve all regions
+  const std::string sql =
+      "SELECT code, name, country_code FROM regions ORDER BY country_code, "
+      "code";
+
+  dbClient->execSqlAsync(
+      sql,
+      [callbackPtr](const Result& r) {
+        try {
+          Json::Value arr(Json::arrayValue);
+          for (const auto& row : r) {
+            // Return code, name, and country_code fields
+            Json::Value regionObj;
+            regionObj["code"] = row.at("code").as<std::string>();
+            regionObj["name"] = row.at("name").as<std::string>();
+            regionObj["country_code"] =
+                row.at("country_code").as<std::string>();
+            arr.append(regionObj);
+          }
+          (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
+        } catch (const std::exception& e) {
+          LOG_ERROR << fmt::format("UserController::list_regions failed: {}",
+                                   e.what());
+          auto resp = HttpResponse::newHttpResponse();
+          resp->setStatusCode(k500InternalServerError);
+          resp->setBody(std::string("Internal error: ") + e.what());
+          (*callbackPtr)(resp);
+        }
+      },
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("UserController::list_regions DB error: {}",
+                                 e.base().what());
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k500InternalServerError);
+        resp->setBody(e.base().what());
+        (*callbackPtr)(resp);
+      });
+}
