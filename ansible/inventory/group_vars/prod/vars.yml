@@ -2,8 +2,6 @@
 # Host-specific variables for remote deployment via SSH
 # This file overrides defaults for the 192.168.178.34 host when targeted by ansible-playbook
 
-vote_backend_container_user: vote
-
 # For remote SSH hosts, we should NOT build the image locally on the target.
 # This playbook will build the image on localhost and push it to this host.
 vote_backend_build_on_target: false
