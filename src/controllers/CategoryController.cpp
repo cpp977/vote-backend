@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "vote-backend/utils/ErrorResponse.hpp"
+
 using drogon::orm::DrogonDbException;
 using namespace drogon;
 
@@ -48,19 +50,13 @@ void CategoryController::getCategoriesByLanguage(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("getCategoriesByLanguage failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("getCategoriesByLanguage DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       },
       language);
 }

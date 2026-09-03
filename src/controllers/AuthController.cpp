@@ -389,8 +389,7 @@ void AuthController::register_user(
         try {
           pw_hash = hash_password(password);
         } catch (const std::exception& e) {
-          send_error(cb, std::string("Internal error: ") + e.what(),
-                     k500InternalServerError);
+          send_internal_server_error(cb, e.what());
           return;
         }
 
@@ -461,13 +460,11 @@ void AuthController::register_user(
           resp->setStatusCode(k201Created);
           cb(resp);
         } >> [cb](const drogon::orm::DrogonDbException& e) {
-          send_error(cb, std::string("Database error: ") + e.base().what(),
-                     k500InternalServerError);
+          send_db_internal_server_error(cb, e);
         };
       },
       [cb](const drogon::orm::DrogonDbException& e) {
-        send_error(cb, std::string("Database error: ") + e.base().what(),
-                   k500InternalServerError);
+        send_db_internal_server_error(cb, e);
       },
       username, email, nationality, region);
 }
@@ -536,8 +533,7 @@ void AuthController::login(const HttpRequestPtr& req,
               cb(HttpResponse::newHttpJsonResponse(resp));
             },
             [cb](const drogon::orm::DrogonDbException& e) {
-              send_error(cb, std::string("Database error: ") + e.base().what(),
-                         k500InternalServerError);
+              send_db_internal_server_error(cb, e);
             },
             user_id, refresh_hash);
       },
@@ -633,8 +629,7 @@ void AuthController::me(const HttpRequestPtr& req,
         cb(resp);
       },
       [cb](const drogon::orm::DrogonDbException& e) {
-        send_error(cb, std::string("Database error: ") + e.base().what(),
-                   k500InternalServerError);
+        send_db_internal_server_error(cb, e);
       },
       user_id);
 }
@@ -788,8 +783,7 @@ void AuthController::update_me(
     try {
       pw_hash = hash_password(password);
     } catch (const std::exception& e) {
-      send_error(cb, std::string("Internal error: ") + e.what(),
-                 k500InternalServerError);
+      send_internal_server_error(cb, e.what());
       return;
     }
   }
@@ -1007,29 +1001,22 @@ void AuthController::refresh(const HttpRequestPtr& req,
                           cb(HttpResponse::newHttpJsonResponse(resp));
                         },
                         [cb](const drogon::orm::DrogonDbException& e) {
-                          send_error(
-                              cb,
-                              std::string("Database error: ") + e.base().what(),
-                              k500InternalServerError);
+                          send_db_internal_server_error(cb, e);
                         },
                         user_id, new_hash);
                   },
                   [cb](const drogon::orm::DrogonDbException& e) {
-                    send_error(
-                        cb, std::string("Database error: ") + e.base().what(),
-                        k500InternalServerError);
+                    send_db_internal_server_error(cb, e);
                   },
                   user_id);
             },
             [cb](const drogon::orm::DrogonDbException& e) {
-              send_error(cb, std::string("Database error: ") + e.base().what(),
-                         k500InternalServerError);
+              send_db_internal_server_error(cb, e);
             },
             old_token_id);
       },
       [cb](const drogon::orm::DrogonDbException& e) {
-        send_error(cb, std::string("Database error: ") + e.base().what(),
-                   k500InternalServerError);
+        send_db_internal_server_error(cb, e);
       },
       token_hash, user_id);
 }

@@ -23,6 +23,7 @@
 #include "vote-backend/models/Questions.hpp"
 #include "vote-backend/utils/BirthYearBucketer.hpp"
 #include "vote-backend/utils/Config.hpp"
+#include "vote-backend/utils/ErrorResponse.hpp"
 #include "vote-backend/utils/Nationality.hpp"
 #include "vote-backend/utils/Region.hpp"
 #include "vote-backend/utils/UserIdHash.hpp"
@@ -99,19 +100,13 @@ void QuestionController::getQuestionsWithCategories(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("getQuestionsWithCategories failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("getQuestionsWithCategories DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       });
 }
 
@@ -154,19 +149,13 @@ void QuestionController::searchQuestions(
           (*callbackPtr)(HttpResponse::newHttpJsonResponse(arr));
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("searchQuestions failed: {}", e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("searchQuestions DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       },
       "%" + searchTerm + "%");
 }
@@ -216,19 +205,13 @@ void QuestionController::getAnswerOptions(
             [callbackPtr](const DrogonDbException& e) {
               LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
                                        e.base().what());
-              auto resp = HttpResponse::newHttpResponse();
-              resp->setStatusCode(k500InternalServerError);
-              resp->setBody(e.base().what());
-              (*callbackPtr)(resp);
+              send_db_internal_server_error(*callbackPtr, e);
             };
       } >>
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("getAnswerOptions DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       };
 }
 
@@ -283,19 +266,13 @@ void QuestionController::getAnswerOptionsWithAuth(
             [callbackPtr](const DrogonDbException& e) {
               LOG_ERROR << fmt::format("getAnswerOptionsWithAuth DB error: {}",
                                        e.base().what());
-              auto resp = HttpResponse::newHttpResponse();
-              resp->setStatusCode(k500InternalServerError);
-              resp->setBody(e.base().what());
-              (*callbackPtr)(resp);
+              send_db_internal_server_error(*callbackPtr, e);
             };
       } >>
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("getAnswerOptionsWithAuth DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       };
 }
 
@@ -335,19 +312,13 @@ void QuestionController::getQuestionsByLanguage(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("getQuestionsByLanguage failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("getQuestionsByLanguage DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       },
       language);
 }
@@ -511,10 +482,7 @@ void QuestionController::getStats(
   };
   auto onError = [callbackPtr](const DrogonDbException& e) {
     LOG_ERROR << fmt::format("getStats DB error: {}", e.base().what());
-    auto resp = HttpResponse::newHttpResponse();
-    resp->setStatusCode(k500InternalServerError);
-    resp->setBody(e.base().what());
-    (*callbackPtr)(resp);
+    send_db_internal_server_error(*callbackPtr, e);
   };
 
   // Without a filter, bind '{}' — the empty object is contained in every
@@ -627,10 +595,7 @@ void QuestionController::getStatsMeta(
   };
   auto onError = [callbackPtr](const DrogonDbException& e) {
     LOG_ERROR << fmt::format("getStatsMeta DB error: {}", e.base().what());
-    auto resp = HttpResponse::newHttpResponse();
-    resp->setStatusCode(k500InternalServerError);
-    resp->setBody(e.base().what());
-    (*callbackPtr)(resp);
+    send_db_internal_server_error(*callbackPtr, e);
   };
   dbClient->execSqlAsync(
       "SELECT 'nationality' AS dim, nationality AS code "

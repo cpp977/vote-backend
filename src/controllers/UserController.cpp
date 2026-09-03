@@ -61,19 +61,13 @@ void UserController::list_users(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::list_users failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::list_users DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       });
 }
 
@@ -119,19 +113,13 @@ void UserController::get_user_by_id(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::get_user_by_id failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (cb)(resp);
+          send_internal_server_error(cb, e.what());
         }
       },
       [cb](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::get_user_by_id DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (cb)(resp);
+        send_db_internal_server_error(cb, e);
       },
       user_id);
 }
@@ -164,19 +152,13 @@ void UserController::set_user_inactive(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format(
               "UserController::set_user_inactive failed: {}", e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (cb)(resp);
+          send_internal_server_error(cb, e.what());
         }
       },
       [cb](const DrogonDbException& e) {
         LOG_ERROR << fmt::format(
             "UserController::set_user_inactive DB error: {}", e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (cb)(resp);
+        send_db_internal_server_error(cb, e);
       },
       user_id);
 }
@@ -209,19 +191,13 @@ void UserController::set_user_active(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::set_user_active failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (cb)(resp);
+          send_internal_server_error(cb, e.what());
         }
       },
       [cb](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::set_user_active DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (cb)(resp);
+        send_db_internal_server_error(cb, e);
       },
       user_id);
 }
@@ -270,19 +246,13 @@ void UserController::delete_user(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::delete_user failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          cb(resp);
+          send_internal_server_error(cb, e.what());
         }
       },
       [cb](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::delete_user DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        cb(resp);
+        send_db_internal_server_error(cb, e);
       },
       user_id);
 }
@@ -314,19 +284,13 @@ void UserController::list_countries(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::list_countries failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::list_countries DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       });
 }
 
@@ -361,18 +325,12 @@ void UserController::list_regions(
         } catch (const std::exception& e) {
           LOG_ERROR << fmt::format("UserController::list_regions failed: {}",
                                    e.what());
-          auto resp = HttpResponse::newHttpResponse();
-          resp->setStatusCode(k500InternalServerError);
-          resp->setBody(std::string("Internal error: ") + e.what());
-          (*callbackPtr)(resp);
+          send_internal_server_error(*callbackPtr, e.what());
         }
       },
       [callbackPtr](const DrogonDbException& e) {
         LOG_ERROR << fmt::format("UserController::list_regions DB error: {}",
                                  e.base().what());
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setStatusCode(k500InternalServerError);
-        resp->setBody(e.base().what());
-        (*callbackPtr)(resp);
+        send_db_internal_server_error(*callbackPtr, e);
       });
 }
