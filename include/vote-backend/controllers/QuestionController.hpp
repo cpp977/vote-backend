@@ -32,8 +32,7 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   ADD_METHOD_TO(QuestionController::searchQuestions, "/questions/search",
                 drogon::Get, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::restSearchQuestions,
-                "/questions/restSearch", drogon::Post, drogon::Options,
-                "JwtAuthFilter");
+                "/questions/restSearch", drogon::Post, drogon::Options);
   ADD_METHOD_TO(QuestionController::answerQuestion, "/questions/{1}/answer",
                 drogon::Post, drogon::Options, "JwtAuthFilter");
   // Submission workflow (Option B): a user sees only their own submissions;
