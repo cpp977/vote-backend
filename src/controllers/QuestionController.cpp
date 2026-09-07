@@ -697,9 +697,13 @@ void appendFilter(const FilterDef& f, const Json::Value& value,
   }
 }
 
-void QuestionController::restSearchQuestions(
-    const HttpRequestPtr& req,
-    std::function<void(const HttpResponsePtr&)>&& callback) {
+namespace {
+// Parse JSON body and extract pagination parameters.
+// Returns false and calls callback with 400 if parsing fails.
+bool parseSearchRequest(const HttpRequestPtr& req,
+                        std::function<void(const HttpResponsePtr&)>&& callback,
+                        Json::Value& outJson, int& outOffset, int& outLimit,
+                        bool& outUnansweredOnly) {
   auto json = req->getJsonObject();
   if (!json) {
     const std::string& body = std::string(req->getBody());
@@ -716,8 +720,6 @@ void QuestionController::restSearchQuestions(
       LOG_WARN << fmt::format("Invalid JSON in request body: {}", errs);
       LOG_WARN << fmt::format("Raw body was: {}", body);
     } else {
-      // rare: Drogon's own parser rejected it but JsonCpp directly succeeds —
-      // usually means Content-Type wasn't application/json
       LOG_WARN << fmt::format(
           "Body parsed independently but Drogon didn't recognize it as JSON "
           "(check Content-Type header: {})",
@@ -727,78 +729,90 @@ void QuestionController::restSearchQuestions(
     auto resp = HttpResponse::newHttpResponse();
     resp->setStatusCode(k400BadRequest);
     callback(resp);
-    return;
+    return false;
   }
 
-  // Extract pagination parameters with defaults
-  int offset = 0;
-  int limit = 50;
+  outJson = *json;
+  outOffset = 0;
+  outLimit = 50;
 
-  if (json->isMember("offset")) {
+  if (outJson.isMember("offset")) {
     try {
-      offset = (*json)["offset"].asInt();
-      if (offset < 0) {
-        offset = 0;
-      }
+      outOffset = outJson["offset"].asInt();
+      if (outOffset < 0) outOffset = 0;
     } catch (const std::exception& e) {
       LOG_WARN << fmt::format("Invalid offset value, using default (0): {}",
                               e.what());
     }
   }
 
-  if (json->isMember("limit")) {
+  if (outJson.isMember("limit")) {
     try {
-      limit = (*json)["limit"].asInt();
-      if (limit < 0) {
-        limit = 50;
-      }
-      // Apply a reasonable maximum limit to prevent abuse
-      if (limit > 1000) {
-        limit = 1000;
-      }
+      outLimit = outJson["limit"].asInt();
+      if (outLimit < 0) outLimit = 50;
+      if (outLimit > 1000) outLimit = 1000;
     } catch (const std::exception& e) {
       LOG_WARN << fmt::format("Invalid limit value, using default (50): {}",
                               e.what());
     }
   }
 
-  std::string sql =
+  // Optional unanswered_only parameter (default: false)
+  outUnansweredOnly = false;
+  if (outJson.isMember("unanswered_only")) {
+    if (outJson["unanswered_only"].isBool()) {
+      outUnansweredOnly = outJson["unanswered_only"].asBool();
+    } else {
+      LOG_WARN << "Invalid unanswered_only value, must be boolean, defaulting "
+                  "to false";
+    }
+  }
+  return true;
+}
+
+// Build the SQL query and parameters for search.
+void buildSearchQuery(const Json::Value& json, int offset, int limit,
+                      std::string& outSql,
+                      std::vector<std::string>& outParams) {
+  outSql =
       "SELECT q.id, q.text, q.language, q.category_id, q.special_category, "
       "c.name AS category_name FROM questions q "
       "LEFT JOIN categories c ON c.id = q.category_id AND c.language = "
       "q.language "
       "WHERE 1=1 AND q.submission_status = 'approved'";
-  std::vector<std::string> params;
+  outParams.clear();
   int idx = 1;
 
   for (const auto& f : filters) {
     Json::Value value;
-    if (json->isMember(f.jsonKey)) {
-      value = (*json)[f.jsonKey];
+    if (json.isMember(f.jsonKey)) {
+      value = json[f.jsonKey];
     } else if (f.kind == FilterKind::InArray) {
-      // Default for array filters is an empty list; appendFilter() will skip
-      // it.
       value = Json::Value(Json::arrayValue);
     } else {
-      // Default for scalar filters is the empty value; appendFilter() skips it.
       value = Json::Value(f.nullValue);
     }
-    appendFilter(f, value, sql, params, idx);
+    appendFilter(f, value, outSql, outParams, idx);
   }
 
-  // Add ORDER BY to ensure consistent pagination
-  sql += " ORDER BY q.created_at DESC";
+  outSql += " ORDER BY q.created_at DESC";
 
-  // Add LIMIT and OFFSET for pagination
   if (limit > 0) {
-    sql += fmt::format(" LIMIT ${}", idx++);
-    params.push_back(std::to_string(limit));
+    outSql += fmt::format(" LIMIT ${}", idx++);
+    outParams.push_back(std::to_string(limit));
   }
   if (offset > 0) {
-    sql += fmt::format(" OFFSET ${}", idx++);
-    params.push_back(std::to_string(offset));
+    outSql += fmt::format(" OFFSET ${}", idx++);
+    outParams.push_back(std::to_string(offset));
   }
+}
 
+// Execute search query and transform results to JSON.
+void executeSearchQuery(
+    const std::string& sql, const std::vector<std::string>& params,
+    std::function<void(const HttpResponsePtr&)>&& callback,
+    const std::optional<std::string>& user_id = std::nullopt,
+    bool unanswered_only = false, int offset = 0, int limit = 50) {
   LOG_DEBUG << fmt::format("SQL: {} | params: [{}]", sql,
                            fmt::join(params, ", "));
 
@@ -807,41 +821,149 @@ void QuestionController::restSearchQuestions(
 
   for (const auto& p : params) binder << p;
 
-  binder >> [callback](const drogon::orm::Result& result) {
-    Json::Value ret;
-    for (const auto& row : result) {
-      const auto& category_name = row.at("category_name");
-      // The JOIN matches the category on language, so a NULL category_name
-      // means the question is linked to a category that has no translation in
-      // the question's language (data inconsistency). Surface it instead of
-      // returning a question with a missing or foreign-language category name.
-      if (category_name.isNull()) {
-        LOG_ERROR << fmt::format(
-            "Question {} (language {}) references category {} which has no "
-            "translation in that language",
-            row.at("id").as<long long>(), row.at("language").as<std::string>(),
-            row.at("category_id").as<long long>());
-        Json::Value err;
-        err["error"] =
-            "Data inconsistency: a question references a category that is "
-            "not available in the question's language";
-        auto resp = HttpResponse::newHttpJsonResponse(err);
-        resp->setStatusCode(k500InternalServerError);
-        callback(resp);
-        return;
+  binder >> [callback, user_id, unanswered_only, offset,
+             limit](const drogon::orm::Result& result) {
+    if (!user_id) {
+      // Public endpoint - simple transformation
+      Json::Value ret;
+      for (const auto& row : result) {
+        const auto& category_name = row.at("category_name");
+        if (category_name.isNull()) {
+          LOG_ERROR << fmt::format(
+              "Question {} (language {}) references category {} which has no "
+              "translation in that language",
+              row.at("id").as<long long>(),
+              row.at("language").as<std::string>(),
+              row.at("category_id").as<long long>());
+          Json::Value err;
+          err["error"] =
+              "Data inconsistency: a question references a category that is "
+              "not available in the question's language";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k500InternalServerError);
+          callback(resp);
+          return;
+        }
+        Json::Value q;
+        q["id"] =
+            Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
+        q["text"] = row.at("text").as<std::string>();
+        q["language"] = row.at("language").as<std::string>();
+        q["category_id"] = Json::Value(
+            static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+        q["category_name"] = category_name.as<std::string>();
+        q["special_category"] = row.at("special_category").as<std::string>();
+        ret.append(q);
       }
-      Json::Value q;
-      q["id"] =
-          Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
-      q["text"] = row.at("text").as<std::string>();
-      q["language"] = row.at("language").as<std::string>();
-      q["category_id"] = Json::Value(
-          static_cast<Json::Int64>(row.at("category_id").as<long long>()));
-      q["category_name"] = category_name.as<std::string>();
-      q["special_category"] = row.at("special_category").as<std::string>();
-      ret.append(q);
+      callback(HttpResponse::newHttpJsonResponse(ret));
+      return;
     }
-    callback(HttpResponse::newHttpJsonResponse(ret));
+
+    // Authenticated endpoint - check answered status
+    std::vector<int64_t> question_ids;
+    question_ids.reserve(result.size());
+    for (const auto& row : result) {
+      question_ids.push_back(row.at("id").as<long long>());
+    }
+
+    if (question_ids.empty()) {
+      callback(
+          HttpResponse::newHttpJsonResponse(Json::Value(Json::arrayValue)));
+      return;
+    }
+
+    auto dbClient = drogon::app().getDbClient();
+    auto hasher = vote_backend::utils::user_id_hasher();
+
+    std::string check_sql = "SELECT question_id FROM question_user WHERE ";
+    std::vector<std::string> hash_params;
+    hash_params.reserve(question_ids.size());
+    for (size_t i = 0; i < question_ids.size(); ++i) {
+      if (i > 0) check_sql += " OR ";
+      check_sql += fmt::format("(question_id = {} AND hash_user_id = ${})",
+                               question_ids[i], i + 1);
+      hash_params.push_back(hasher.hash(*user_id, question_ids[i]));
+    }
+
+    auto callbackPtr =
+        std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+            std::move(callback));
+
+    auto check_binder = *dbClient << check_sql;
+    for (const auto& h : hash_params) {
+      check_binder << h;
+    }
+
+    check_binder >> [callbackPtr, question_ids, result, hash_params,
+                     unanswered_only, offset,
+                     limit](const drogon::orm::Result& check_result) {
+      (void)hash_params;
+      std::unordered_set<int64_t> answered_ids;
+      for (const auto& row : check_result) {
+        answered_ids.insert(row.at("question_id").as<long long>());
+      }
+
+      Json::Value ret(Json::arrayValue);
+      int result_count = 0;
+      for (const auto& row : result) {
+        const auto& category_name = row.at("category_name");
+        if (category_name.isNull()) {
+          LOG_ERROR << fmt::format(
+              "Question {} (language {}) references category {} which has no "
+              "translation in that language",
+              row.at("id").as<long long>(),
+              row.at("language").as<std::string>(),
+              row.at("category_id").as<long long>());
+          Json::Value err;
+          err["error"] =
+              "Data inconsistency: a question references a category that is "
+              "not available in the question's language";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k500InternalServerError);
+          (*callbackPtr)(resp);
+          return;
+        }
+        int64_t qid = row.at("id").as<long long>();
+        bool answered = answered_ids.count(qid) > 0;
+
+        // Skip answered questions if unanswered_only is true
+        if (unanswered_only && answered) {
+          continue;
+        }
+
+        // Apply pagination manually for unanswered_only
+        if (unanswered_only) {
+          if (result_count < offset) {
+            result_count++;
+            continue;
+          }
+          if (limit > 0 && static_cast<int>(ret.size()) >= limit) {
+            break;
+          }
+        }
+
+        Json::Value q;
+        q["id"] = Json::Value(static_cast<Json::Int64>(qid));
+        q["text"] = row.at("text").as<std::string>();
+        q["language"] = row.at("language").as<std::string>();
+        q["category_id"] = Json::Value(
+            static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+        q["category_name"] = category_name.as<std::string>();
+        q["special_category"] = row.at("special_category").as<std::string>();
+        q["answered"] = Json::Value(answered);
+        ret.append(q);
+        if (!unanswered_only) {
+          result_count++;
+        }
+      }
+      (*callbackPtr)(HttpResponse::newHttpJsonResponse(ret));
+    } >> [callbackPtr](const drogon::orm::DrogonDbException& e) {
+      Json::Value err;
+      err["error"] = e.base().what();
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k500InternalServerError);
+      (*callbackPtr)(resp);
+    };
   } >> [callback](const drogon::orm::DrogonDbException& e) {
     Json::Value err;
     err["error"] = e.base().what();
@@ -849,6 +971,56 @@ void QuestionController::restSearchQuestions(
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
   };
+}
+}  // namespace
+
+void QuestionController::restSearchQuestions(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  Json::Value json;
+  int offset, limit;
+  bool unanswered_only;
+  if (!parseSearchRequest(req, std::move(callback), json, offset, limit,
+                          unanswered_only)) {
+    return;
+  }
+
+  std::string sql;
+  std::vector<std::string> params;
+  buildSearchQuery(json, offset, limit, sql, params);
+  executeSearchQuery(sql, params, std::move(callback), std::nullopt,
+                     unanswered_only, offset, limit);
+}
+
+void QuestionController::restSearchQuestionsWithAuth(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  // 1. Authentication: the JWT filter stores the user id in the
+  //    request attributes.
+  std::string user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.empty()) {
+    Json::Value err;
+    err["error"] = "Unauthenticated";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  // 2. Parse and execute using shared helpers
+  Json::Value json;
+  int offset, limit;
+  bool unanswered_only;
+  if (!parseSearchRequest(req, std::move(callback), json, offset, limit,
+                          unanswered_only)) {
+    return;
+  }
+
+  std::string sql;
+  std::vector<std::string> params;
+  buildSearchQuery(json, offset, limit, sql, params);
+  executeSearchQuery(sql, params, std::move(callback), user_id, unanswered_only,
+                     offset, limit);
 }
 
 void QuestionController::answerQuestion(

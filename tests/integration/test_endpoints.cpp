@@ -3014,3 +3014,232 @@ TEST_CASE("ResetPassword with missing password returns 400") {
   CHECK(resp.status == 400);
   CHECK(resp.json_body.contains("error"));
 }
+
+// ---------------------------------------------------------------------------
+// POST /questions/restSearch-with-auth  (authenticated search with answered
+// status)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("RestSearchQuestionsWithAuth requires authentication") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+
+  // No bearer token — should return 401
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json");
+  CHECK(resp.status == 401);
+  CHECK(resp.json_body.contains("error"));
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth returns answered field for each question") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() >= 1);
+
+  // Each question must have the 'answered' field (boolean)
+  for (const auto& q : resp.json_body) {
+    CHECK(q.contains("id"));
+    CHECK(q.contains("text"));
+    CHECK(q.contains("language"));
+    CHECK(q.contains("category_id"));
+    CHECK(q.contains("category_name"));
+    CHECK(q.contains("special_category"));
+    CHECK(q.contains("answered"));
+    CHECK(q["answered"].is_boolean());
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth with unanswered_only=true filters answered "
+    "questions") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+  request_body["unanswered_only"] = true;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+
+  // All returned questions must have answered=false
+  for (const auto& q : resp.json_body) {
+    CHECK(q.contains("answered"));
+    CHECK(q["answered"] == false);
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth with unanswered_only=false returns all "
+    "questions") {
+  // Create a test user and have them answer some questions
+  std::string test_token =
+      test_helpers::authenticate("127.0.0.1", 8848, "RestSearchTestUser",
+                                 "restsearchtest@example.com", "password123");
+
+  nlohmann::json request_body;
+  request_body["limit"] = 1000;
+
+  // First, answer a question to create an answered record
+  nlohmann::json answer_body;
+  answer_body["answer_id"] = 1;  // Question 1, answer "0"
+  auto answer_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/1/answer", answer_body.dump(),
+      "application/json", test_token);
+  CHECK(answer_resp.status == 201);
+
+  // Now search with unanswered_only=false - should include the answered
+  // question
+  request_body["unanswered_only"] = false;
+  auto resp_all = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", test_token);
+  CHECK(resp_all.status == 200);
+  CHECK(resp_all.json_body.is_array());
+
+  // Find question 1 in the results - it should be marked as answered
+  bool found_answered = false;
+  for (const auto& q : resp_all.json_body) {
+    if (q["id"] == 1) {
+      CHECK(q["answered"] == true);
+      found_answered = true;
+      break;
+    }
+  }
+  CHECK(found_answered);
+
+  // Now search with unanswered_only=true - should exclude the answered question
+  request_body["unanswered_only"] = true;
+  auto resp_unanswered = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", test_token);
+  CHECK(resp_unanswered.status == 200);
+  CHECK(resp_unanswered.json_body.is_array());
+
+  // Question 1 should not be in the results
+  bool found_question_1 = false;
+  for (const auto& q : resp_unanswered.json_body) {
+    if (q["id"] == 1) {
+      found_question_1 = true;
+      break;
+    }
+  }
+  CHECK_FALSE(found_question_1);
+
+  // All returned questions must have answered=false
+  for (const auto& q : resp_unanswered.json_body) {
+    CHECK(q["answered"] == false);
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth with unanswered_only=true and pagination") {
+  // Register and login a test user
+  std::string test_token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "RestSearchPaginateUser",
+      "restsearchpaginate@example.com", "password123");
+
+  nlohmann::json request_body;
+  request_body["unanswered_only"] = true;
+  request_body["limit"] = 5;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", test_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+  CHECK(resp.json_body.size() == 5);
+
+  // All returned questions must have answered=false
+  for (const auto& q : resp.json_body) {
+    CHECK(q["answered"] == false);
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth returns all filter fields from restSearch") {
+  nlohmann::json request_body;
+  request_body["language"] = "en";
+  request_body["categoryIds"] = nlohmann::json::array({1, 2, 3});
+  request_body["age"] = 10;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", global_fixture.access_token);
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+
+  for (const auto& q : resp.json_body) {
+    CHECK(q["language"] == "en");
+    int cat_id = q["category_id"].get<int>();
+    bool in_filter = (cat_id >= 1 && cat_id <= 3);
+    CHECK(in_filter);
+    CHECK(q["answered"].is_boolean());
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth public endpoint does not have answered "
+    "field") {
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+  request_body["limit"] = 1000;
+
+  // Call the public endpoint
+  auto resp_public = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json");
+  CHECK(resp_public.status == 200);
+  CHECK(resp_public.json_body.is_array());
+
+  // Public endpoint should NOT have 'answered' field
+  for (const auto& q : resp_public.json_body) {
+    CHECK_FALSE(q.contains("answered"));
+  }
+
+  // Authenticated endpoint SHOULD have 'answered' field
+  auto resp_auth = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+      request_body.dump(), "application/json", global_fixture.access_token);
+  CHECK(resp_auth.status == 200);
+  CHECK(resp_auth.json_body.is_array());
+
+  for (const auto& q : resp_auth.json_body) {
+    CHECK(q.contains("answered"));
+  }
+}
+
+TEST_CASE(
+    "RestSearchQuestionsWithAuth unanswered_only on public endpoint is "
+    "ignored") {
+  // The unanswered_only parameter is accepted but ignored for public endpoint
+  nlohmann::json request_body;
+  request_body["search"] = "bananas";
+  request_body["unanswered_only"] = true;
+  request_body["limit"] = 1000;
+
+  auto resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
+      "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_array());
+
+  // Should still return results (unanswered_only has no effect without auth)
+  CHECK(resp.json_body.size() >= 1);
+
+  // No 'answered' field in public endpoint
+  for (const auto& q : resp.json_body) {
+    CHECK_FALSE(q.contains("answered"));
+  }
+}

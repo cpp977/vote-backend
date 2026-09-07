@@ -33,6 +33,9 @@ class QuestionController : public drogon::HttpController<QuestionController> {
                 drogon::Get, drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::restSearchQuestions,
                 "/questions/restSearch", drogon::Post, drogon::Options);
+  ADD_METHOD_TO(QuestionController::restSearchQuestionsWithAuth,
+                "/questions/restSearch-with-auth", drogon::Post,
+                drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::answerQuestion, "/questions/{1}/answer",
                 drogon::Post, drogon::Options, "JwtAuthFilter");
   // Submission workflow (Option B): a user sees only their own submissions;
@@ -87,6 +90,9 @@ class QuestionController : public drogon::HttpController<QuestionController> {
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
   void restSearchQuestions(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+  void restSearchQuestionsWithAuth(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
   void answerQuestion(const drogon::HttpRequestPtr& req,
