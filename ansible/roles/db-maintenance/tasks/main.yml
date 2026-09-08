@@ -6,7 +6,6 @@
 - name: Assert required variables are defined
   ansible.builtin.assert:
     that:
-      - vote_backend_container_user is defined
       - vote_backend_db_container_name is defined
       - vote_backend_db_name is defined
       - vote_backend_db_maintenance_user is defined

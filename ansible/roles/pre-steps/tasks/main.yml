@@ -1,0 +1,13 @@
+---
+# roles/pre-steps/tasks/main.yml
+#
+# general setup and installation steps
+
+- name: Look up username of container user
+  ansible.builtin.command: id -n -u
+  register: vote_backend_container_user_full
+  changed_when: false
+  tags: [maintenance, db]
+
+- ansible.builtin.set_fact:
+    vote_backend_container_user: "{{ vote_backend_container_user_full.stdout }}"

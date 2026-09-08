@@ -33,6 +33,7 @@
     state: absent
     name:
       - vote.network
+  ignore_errors: True
 
 - name: Install vote.network quadlet
   containers.podman.podman_quadlet:

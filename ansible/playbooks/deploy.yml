@@ -57,6 +57,7 @@
     vote_backend_nginx_server_name: "{{ vote_backend_acme_domain }}"
 
   roles:
+    - role: pre-steps
     - role: container-image
     - role: postgres
     - role: app

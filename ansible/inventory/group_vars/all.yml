@@ -14,8 +14,6 @@ vote_backend_image_registry: localhost
 vote_backend_image_name: "{{ vote_backend_image_registry }}/vote-backend"
 vote_backend_image_tag: "{{ lookup('file', vote_backend_project_root ~ '/version.txt') | trim }}"
 
-vote_backend_container_user: peschke
-
 # database
 vote_backend_postgresql_version: 18
 vote_backend_db_container_name: drogon-postgres
