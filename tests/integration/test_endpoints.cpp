@@ -1494,6 +1494,91 @@ TEST_CASE("AnswerQuestion ignores consent parameter for regular questions") {
 }
 
 // ---------------------------------------------------------------------------
+// DELETE /questions/{id}/answer  (delete the authenticated user's answer)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("DeleteAnswer deletes an existing answer (200 OK)") {
+  // First, answer question 5 (answer_id 17) to create a deletable answer.
+  // Question 5 was only used in a 400 test, so it has no successful answer yet.
+  nlohmann::json answer_body;
+  answer_body["answer_id"] = 17;
+  auto answer_resp = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/5/answer", answer_body.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(answer_resp.status == 201);
+
+  // Now delete the answer.
+  auto delete_resp = test_helpers::http_request(
+      "DELETE", "127.0.0.1", 8848, "/questions/5/answer", "",
+      "application/json", global_fixture.access_token);
+  CHECK(delete_resp.status == 200);
+  CHECK(delete_resp.json_body["message"] == "Answer deleted");
+
+  // Verify the answer is gone by trying to answer again with a different option
+  // (answer_id 18). This should succeed since the tracking row was deleted.
+  nlohmann::json second_answer;
+  second_answer["answer_id"] = 18;
+  auto answer_resp2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/5/answer", second_answer.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(answer_resp2.status == 201);
+  CHECK(answer_resp2.json_body["answer_id"] == 18);
+}
+
+TEST_CASE("DeleteAnswer returns 404 when no answer exists") {
+  // The test fixture user (Admin) has not answered question 3 in seed data.
+  auto delete_resp = test_helpers::http_request(
+      "DELETE", "127.0.0.1", 8848, "/questions/3/answer", "",
+      "application/json", global_fixture.access_token);
+  CHECK(delete_resp.status == 404);
+  CHECK(delete_resp.json_body.contains("error"));
+}
+
+TEST_CASE("DeleteAnswer requires authentication (401)") {
+  // No bearer token -> 401.
+  auto delete_resp = test_helpers::http_request("DELETE", "127.0.0.1", 8848,
+                                                "/questions/5/answer", "",
+                                                "application/json", "");
+  CHECK(delete_resp.status == 401);
+}
+
+TEST_CASE("DeleteAnswer returns 404 for non-existent question") {
+  // Question 99999 does not exist.
+  auto delete_resp = test_helpers::http_request(
+      "DELETE", "127.0.0.1", 8848, "/questions/99999/answer", "",
+      "application/json", global_fixture.access_token);
+  CHECK(delete_resp.status == 404);
+  CHECK(delete_resp.json_body.contains("error"));
+}
+
+TEST_CASE(
+    "DeleteAnswer removes tracking from question_user allowing re-answer") {
+  // Answer question 6 (answer_id 22), then delete, then answer again with
+  // a different option to verify the tracking row was removed.
+  nlohmann::json first_answer;
+  first_answer["answer_id"] = 22;
+  auto r1 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/6/answer", first_answer.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(r1.status == 201);
+
+  // Delete the answer.
+  auto del_resp = test_helpers::http_request(
+      "DELETE", "127.0.0.1", 8848, "/questions/6/answer", "",
+      "application/json", global_fixture.access_token);
+  CHECK(del_resp.status == 200);
+
+  // Answer again with a different option (answer_id 23).
+  nlohmann::json second_answer;
+  second_answer["answer_id"] = 23;
+  auto r2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/6/answer", second_answer.dump(),
+      "application/json", global_fixture.access_token);
+  CHECK(r2.status == 201);
+  CHECK(r2.json_body["answer_id"] == 23);
+}
+
+// ---------------------------------------------------------------------------
 // GET /questions/{id} — surfaces the special_category column so clients can
 // ask for consent before answering a flagged question.
 // ---------------------------------------------------------------------------

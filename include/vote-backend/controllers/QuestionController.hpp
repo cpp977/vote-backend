@@ -38,6 +38,8 @@ class QuestionController : public drogon::HttpController<QuestionController> {
                 drogon::Options, "JwtAuthFilter");
   ADD_METHOD_TO(QuestionController::answerQuestion, "/questions/{1}/answer",
                 drogon::Post, drogon::Options, "JwtAuthFilter");
+  ADD_METHOD_TO(QuestionController::deleteAnswer, "/questions/{1}/answer",
+                drogon::Delete, drogon::Options, "JwtAuthFilter");
   // Submission workflow (Option B): a user sees only their own submissions;
   // an admin sees the full review queue and can approve / reject.
   ADD_METHOD_TO(QuestionController::getMySubmissions, "/questions/mine",
@@ -98,6 +100,12 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void answerQuestion(const drogon::HttpRequestPtr& req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                       int questionId);
+  // DELETE /questions/{1}/answer: delete the authenticated user's answer to
+  // a question. Removes the row from user_answers and the tracking row from
+  // question_user.
+  void deleteAnswer(const drogon::HttpRequestPtr& req,
+                    std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                    int questionId);
 
   // --- Submission workflow (Option B) -------------------------------------
   // GET /questions/mine: the authenticated user's own submissions (any status).

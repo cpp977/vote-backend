@@ -1305,6 +1305,131 @@ void QuestionController::answerQuestion(
       user_id);
 }
 
+// DELETE /questions/{1}/answer: delete the authenticated user's answer to
+// a question. Removes the row from user_answers and the tracking row from
+// question_user.
+void QuestionController::deleteAnswer(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback, int questionId) {
+  // 1. Authentication: the JWT filter stores the user id in the request
+  //    attributes.
+  std::string user_id = req->attributes()->get<std::string>("user_id");
+  if (user_id.empty()) {
+    Json::Value err;
+    err["error"] = "Unauthenticated";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  auto dbClient = app().getDbClient();
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+  auto qid = static_cast<int64_t>(questionId);
+
+  // Opaque, non-reversible hash of the user id combined with the question id
+  // (same hashing as used in answerQuestion).
+  std::string hash_user_id =
+      vote_backend::utils::user_id_hasher().hash(user_id, qid);
+
+  // Check that the question exists and is approved (answers can only be
+  // given to approved questions; this keeps the semantics consistent).
+  *dbClient << "SELECT id, submission_status FROM questions "
+               "WHERE id = $1::bigint"
+            << qid >>
+      [=](const Result& r) {
+        if (r.empty() ||
+            r[0]["submission_status"].as<std::string>() != "approved") {
+          Json::Value err;
+          err["error"] = "Question not found";
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k404NotFound);
+          (*callbackPtr)(resp);
+          return;
+        }
+
+        // Delete both rows atomically in a transaction.
+        dbClient->newTransactionAsync(
+            [=](const std::shared_ptr<drogon::orm::Transaction>& trans) {
+              if (!trans) {
+                Json::Value err;
+                err["error"] = "database timeout";
+                auto resp = HttpResponse::newHttpJsonResponse(err);
+                resp->setStatusCode(k500InternalServerError);
+                (*callbackPtr)(resp);
+                return;
+              }
+
+              // Delete from user_answers first.
+              *trans << "DELETE FROM user_answers "
+                        "WHERE question_id = $1::bigint AND "
+                        "EXISTS (SELECT 1 FROM answer_options ao "
+                        "WHERE ao.id = user_answers.answer_id AND "
+                        "ao.question_id = $1::bigint)"
+                     << qid >>
+                  [=](const Result&) {
+                    // Delete from question_user (the tracking row).
+                    *trans << "DELETE FROM question_user "
+                              "WHERE question_id = $1::bigint AND "
+                              "hash_user_id = $2::text"
+                           << qid << hash_user_id >>
+                        [=](const Result& r2) {
+                          if (r2.affectedRows() == 0) {
+                            // No tracking row found - user hadn't answered.
+                            trans->rollback();
+                            Json::Value err;
+                            err["error"] = "No answer found for this question";
+                            auto resp = HttpResponse::newHttpJsonResponse(err);
+                            resp->setStatusCode(k404NotFound);
+                            (*callbackPtr)(resp);
+                            return;
+                          }
+
+                          Json::Value ret;
+                          ret["message"] = "Answer deleted";
+                          auto resp = HttpResponse::newHttpJsonResponse(ret);
+                          resp->setStatusCode(k200OK);
+                          trans->setCommitCallback(
+                              [=](bool) { (*callbackPtr)(resp); });
+                        } >>
+                        [=](const DrogonDbException& e) {
+                          trans->rollback();
+                          LOG_ERROR << fmt::format(
+                              "deleteAnswer question_user delete failed: {}",
+                              e.base().what());
+                          Json::Value err;
+                          err["error"] = "database error";
+                          auto resp = HttpResponse::newHttpJsonResponse(err);
+                          resp->setStatusCode(k500InternalServerError);
+                          (*callbackPtr)(resp);
+                        };
+                  } >>
+                  [=](const DrogonDbException& e) {
+                    trans->rollback();
+                    LOG_ERROR << fmt::format(
+                        "deleteAnswer user_answers delete failed: {}",
+                        e.base().what());
+                    Json::Value err;
+                    err["error"] = "database error";
+                    auto resp = HttpResponse::newHttpJsonResponse(err);
+                    resp->setStatusCode(k500InternalServerError);
+                    (*callbackPtr)(resp);
+                  };
+            });
+      } >>
+      [=](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("deleteAnswer question check failed: {}",
+                                 e.base().what());
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
+}
+
 namespace {
 // Serialize a questions row (including the submission-workflow columns) to
 // JSON for the "my submissions" and admin review-queue endpoints.
