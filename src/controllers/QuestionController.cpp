@@ -14,9 +14,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
+#include <functional>
+#include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "vote-backend/models/AnswerOptions.hpp"
@@ -807,12 +812,149 @@ void buildSearchQuery(const Json::Value& json, int offset, int limit,
   }
 }
 
+// Serializes one search-result row. `answered` is nullopt for the public
+// endpoint, which does not expose the field at all. Returns nullopt and fills
+// `err` when the row references a category that has no translation in the
+// question's language — a data inconsistency that has to surface as 500
+// instead of being reported as a missing category name.
+std::optional<Json::Value> searchRowToJson(const drogon::orm::Row& row,
+                                           std::optional<bool> answered,
+                                           Json::Value& err) {
+  const auto& category_name = row.at("category_name");
+  if (category_name.isNull()) {
+    LOG_ERROR << fmt::format(
+        "Question {} (language {}) references category {} which has no "
+        "translation in that language",
+        row.at("id").as<long long>(), row.at("language").as<std::string>(),
+        row.at("category_id").as<long long>());
+    err["error"] =
+        "Data inconsistency: a question references a category that is not "
+        "available in the question's language";
+    return std::nullopt;
+  }
+  Json::Value q;
+  q["id"] = Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
+  q["text"] = row.at("text").as<std::string>();
+  q["language"] = row.at("language").as<std::string>();
+  q["category_id"] = Json::Value(
+      static_cast<Json::Int64>(row.at("category_id").as<long long>()));
+  q["category_name"] = category_name.as<std::string>();
+  q["special_category"] = row.at("special_category").as<std::string>();
+  if (answered) {
+    q["answered"] = Json::Value(*answered);
+  }
+  return q;
+}
+
+// Runs the second query of the authenticated search and reports which of the
+// given questions the caller has already answered.
+//
+// question_user stores only an opaque hash of the (user, question) pair, and
+// that hash is an HMAC keyed with a server-side secret. It therefore cannot be
+// recomputed inside PostgreSQL, which is why the answered set is resolved in a
+// second query instead of a JOIN. The hashes are computed here and bound as two
+// array parameters; because a user's hash differs per question, matching both
+// arrays is equivalent to matching each (question, hash) pair individually.
+//
+// The callback receives std::nullopt when the lookup failed, leaving the error
+// response to the caller.
+void fetchAnsweredIds(
+    const std::vector<int64_t>& question_ids, const std::string& user_id,
+    std::function<void(const std::optional<std::unordered_set<int64_t>>&)>&&
+        cb) {
+  if (question_ids.empty()) {
+    cb(std::unordered_set<int64_t>{});
+    return;
+  }
+  const auto& hasher = vote_backend::utils::user_id_hasher();
+  std::string id_array = "{";
+  std::string hash_array = "{";
+  id_array.reserve(question_ids.size() * 8);
+  hash_array.reserve(question_ids.size() * 68);  // 64 hex chars + quotes
+  for (size_t i = 0; i < question_ids.size(); ++i) {
+    if (i > 0) {
+      id_array += ',';
+      hash_array += ',';
+    }
+    id_array += std::to_string(question_ids[i]);
+    // The hash is lowercase hex, so the quotes are purely defensive.
+    hash_array += '"' + hasher.hash(user_id, question_ids[i]) + '"';
+  }
+  id_array += '}';
+  hash_array += '}';
+
+  auto dbClient = drogon::app().getDbClient();
+  auto cbPtr = std::make_shared<
+      std::function<void(const std::optional<std::unordered_set<int64_t>>&)>>(
+      std::move(cb));
+
+  *dbClient << "SELECT question_id FROM question_user "
+               "WHERE question_id = ANY($1::bigint[]) "
+               "AND hash_user_id = ANY($2::text[])"
+            << id_array << hash_array >>
+      [cbPtr](const Result& r) {
+        std::unordered_set<int64_t> answered;
+        answered.reserve(r.size());
+        for (const auto& row : r) {
+          answered.insert(row.at("question_id").as<long long>());
+        }
+        (*cbPtr)(answered);
+      } >>
+      [cbPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format("search answered-lookup DB error: {}",
+                                 e.base().what());
+        (*cbPtr)(std::nullopt);
+      };
+}
+
+// Serializes rows of an authenticated search, applying the offset/limit window
+// that could not be pushed into SQL. When `unanswered_only` is set, answered
+// rows are dropped *before* the window is applied, so offset/limit count only
+// unanswered questions. Returns false once the request has been answered, so
+// callers can stop.
+bool respondWithSearchResults(
+    const Result& rows, const std::unordered_set<int64_t>& answered_ids,
+    int offset, int limit, bool unanswered_only,
+    const std::function<void(const HttpResponsePtr&)>& callback) {
+  Json::Value ret(Json::arrayValue);
+  int skipped_for_offset = 0;
+  for (const auto& row : rows) {
+    const int64_t qid = row.at("id").as<long long>();
+    const bool answered = answered_ids.count(qid) > 0;
+    if (unanswered_only && answered) {
+      continue;
+    }
+    Json::Value err;
+    const auto q = searchRowToJson(row, answered, err);
+    if (!q) {
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k500InternalServerError);
+      callback(resp);
+      return false;
+    }
+    if (skipped_for_offset < offset) {
+      ++skipped_for_offset;
+      continue;
+    }
+    if (limit > 0 && static_cast<int>(ret.size()) >= limit) {
+      break;
+    }
+    ret.append(*q);
+  }
+  callback(HttpResponse::newHttpJsonResponse(ret));
+  return true;
+}
+
 // Execute search query and transform results to JSON.
+//
+// The public endpoint is a plain row conversion. For the authenticated
+// endpoint the answered flag is resolved with a second query (see
+// fetchAnsweredIds); no rows are dropped here, because the SQL LIMIT/OFFSET
+// already describes exactly the requested page.
 void executeSearchQuery(
     const std::string& sql, const std::vector<std::string>& params,
     std::function<void(const HttpResponsePtr&)>&& callback,
-    const std::optional<std::string>& user_id = std::nullopt,
-    bool unanswered_only = false, int offset = 0, int limit = 50) {
+    const std::optional<std::string>& user_id = std::nullopt) {
   LOG_DEBUG << fmt::format("SQL: {} | params: [{}]", sql,
                            fmt::join(params, ", "));
 
@@ -821,149 +963,52 @@ void executeSearchQuery(
 
   for (const auto& p : params) binder << p;
 
-  binder >> [callback, user_id, unanswered_only, offset,
-             limit](const drogon::orm::Result& result) {
+  binder >> [callback, user_id](const Result& result) {
     if (!user_id) {
       // Public endpoint - simple transformation
       Json::Value ret;
       for (const auto& row : result) {
-        const auto& category_name = row.at("category_name");
-        if (category_name.isNull()) {
-          LOG_ERROR << fmt::format(
-              "Question {} (language {}) references category {} which has no "
-              "translation in that language",
-              row.at("id").as<long long>(),
-              row.at("language").as<std::string>(),
-              row.at("category_id").as<long long>());
-          Json::Value err;
-          err["error"] =
-              "Data inconsistency: a question references a category that is "
-              "not available in the question's language";
+        Json::Value err;
+        const auto q = searchRowToJson(row, std::nullopt, err);
+        if (!q) {
           auto resp = HttpResponse::newHttpJsonResponse(err);
           resp->setStatusCode(k500InternalServerError);
           callback(resp);
           return;
         }
-        Json::Value q;
-        q["id"] =
-            Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
-        q["text"] = row.at("text").as<std::string>();
-        q["language"] = row.at("language").as<std::string>();
-        q["category_id"] = Json::Value(
-            static_cast<Json::Int64>(row.at("category_id").as<long long>()));
-        q["category_name"] = category_name.as<std::string>();
-        q["special_category"] = row.at("special_category").as<std::string>();
-        ret.append(q);
+        ret.append(*q);
       }
       callback(HttpResponse::newHttpJsonResponse(ret));
       return;
     }
 
-    // Authenticated endpoint - check answered status
+    // Authenticated endpoint: annotate each row with the answered flag.
     std::vector<int64_t> question_ids;
     question_ids.reserve(result.size());
     for (const auto& row : result) {
       question_ids.push_back(row.at("id").as<long long>());
     }
 
-    if (question_ids.empty()) {
-      callback(
-          HttpResponse::newHttpJsonResponse(Json::Value(Json::arrayValue)));
-      return;
-    }
-
-    auto dbClient = drogon::app().getDbClient();
-    auto hasher = vote_backend::utils::user_id_hasher();
-
-    std::string check_sql = "SELECT question_id FROM question_user WHERE ";
-    std::vector<std::string> hash_params;
-    hash_params.reserve(question_ids.size());
-    for (size_t i = 0; i < question_ids.size(); ++i) {
-      if (i > 0) check_sql += " OR ";
-      check_sql += fmt::format("(question_id = {} AND hash_user_id = ${})",
-                               question_ids[i], i + 1);
-      hash_params.push_back(hasher.hash(*user_id, question_ids[i]));
-    }
-
     auto callbackPtr =
         std::make_shared<std::function<void(const HttpResponsePtr&)>>(
             std::move(callback));
-
-    auto check_binder = *dbClient << check_sql;
-    for (const auto& h : hash_params) {
-      check_binder << h;
-    }
-
-    check_binder >> [callbackPtr, question_ids, result, hash_params,
-                     unanswered_only, offset,
-                     limit](const drogon::orm::Result& check_result) {
-      (void)hash_params;
-      std::unordered_set<int64_t> answered_ids;
-      for (const auto& row : check_result) {
-        answered_ids.insert(row.at("question_id").as<long long>());
-      }
-
-      Json::Value ret(Json::arrayValue);
-      int result_count = 0;
-      for (const auto& row : result) {
-        const auto& category_name = row.at("category_name");
-        if (category_name.isNull()) {
-          LOG_ERROR << fmt::format(
-              "Question {} (language {}) references category {} which has no "
-              "translation in that language",
-              row.at("id").as<long long>(),
-              row.at("language").as<std::string>(),
-              row.at("category_id").as<long long>());
-          Json::Value err;
-          err["error"] =
-              "Data inconsistency: a question references a category that is "
-              "not available in the question's language";
-          auto resp = HttpResponse::newHttpJsonResponse(err);
-          resp->setStatusCode(k500InternalServerError);
-          (*callbackPtr)(resp);
-          return;
-        }
-        int64_t qid = row.at("id").as<long long>();
-        bool answered = answered_ids.count(qid) > 0;
-
-        // Skip answered questions if unanswered_only is true
-        if (unanswered_only && answered) {
-          continue;
-        }
-
-        // Apply pagination manually for unanswered_only
-        if (unanswered_only) {
-          if (result_count < offset) {
-            result_count++;
-            continue;
+    fetchAnsweredIds(
+        question_ids, *user_id,
+        [callbackPtr, result](
+            const std::optional<std::unordered_set<int64_t>>& answered_ids) {
+          if (!answered_ids) {
+            Json::Value err;
+            err["error"] = "database error";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k500InternalServerError);
+            (*callbackPtr)(resp);
+            return;
           }
-          if (limit > 0 && static_cast<int>(ret.size()) >= limit) {
-            break;
-          }
-        }
-
-        Json::Value q;
-        q["id"] = Json::Value(static_cast<Json::Int64>(qid));
-        q["text"] = row.at("text").as<std::string>();
-        q["language"] = row.at("language").as<std::string>();
-        q["category_id"] = Json::Value(
-            static_cast<Json::Int64>(row.at("category_id").as<long long>()));
-        q["category_name"] = category_name.as<std::string>();
-        q["special_category"] = row.at("special_category").as<std::string>();
-        q["answered"] = Json::Value(answered);
-        ret.append(q);
-        if (!unanswered_only) {
-          result_count++;
-        }
-      }
-      (*callbackPtr)(HttpResponse::newHttpJsonResponse(ret));
-    } >> [callbackPtr](const drogon::orm::DrogonDbException& e) {
-      Json::Value err;
-      err["error"] = e.base().what();
-      auto resp = HttpResponse::newHttpJsonResponse(err);
-      resp->setStatusCode(k500InternalServerError);
-      (*callbackPtr)(resp);
-    };
+          // The page is already correct; offset/limit are 0 so that nothing is
+          // skipped and every row of the result is serialized.
+          respondWithSearchResults(result, *answered_ids, 0, 0, false,
+                                   *callbackPtr);
+        });
   } >> [callback](const drogon::orm::DrogonDbException& e) {
     Json::Value err;
     err["error"] = e.base().what();
@@ -972,6 +1017,99 @@ void executeSearchQuery(
     callback(resp);
   };
 }
+
+// Window bounds for the unanswered-only search. The search result is filtered
+// in C++ (see fetchAnsweredIds), so the database cannot skip the answered
+// questions for us and the fetched window has to be widened until it holds
+// enough *unanswered* rows. These bounds keep that loop bounded.
+constexpr int kMinUnansweredWindow = 100;
+constexpr int kMaxUnansweredWindow = 5000;
+
+// Executes the search for the authenticated endpoint when `unanswered_only`
+// is requested.
+//
+// Because the answered questions are filtered out after the query, a plain
+// LIMIT/OFFSET would paginate the wrong set: the database would count answered
+// rows towards `offset`, so a page could come back empty or short even though
+// plenty of unanswered questions exist further down. Instead we keep fetching
+// a growing window (starting at offset+limit) from the beginning of the
+// ordered result until it contains enough unanswered rows to serve the
+// requested page, and only then apply offset/limit to the filtered set.
+void executeUnansweredSearch(
+    const Json::Value& json, const std::string& user_id, int offset, int limit,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto callbackPtr =
+      std::make_shared<std::function<void(const HttpResponsePtr&)>>(
+          std::move(callback));
+
+  // Number of unanswered rows required to serve the requested page.
+  const int required = (limit > 0) ? offset + limit : kMaxUnansweredWindow;
+
+  // Self-referencing continuation: widens the window and queries again until
+  // enough unanswered rows were collected.
+  auto fetch = std::make_shared<std::function<void(int)>>();
+  *fetch = [json, user_id, offset, limit, required, callbackPtr,
+            fetch](int window) {
+    std::string sql;
+    std::vector<std::string> params;
+    // Always fetch from the start: offset/limit are applied to the filtered
+    // result below, never by the database.
+    buildSearchQuery(json, 0, window, sql, params);
+
+    LOG_DEBUG << fmt::format(
+        "unanswered search SQL: {} | params: [{}] | window: {}", sql,
+        fmt::join(params, ", "), window);
+
+    auto dbClient = drogon::app().getDbClient();
+    auto binder = *dbClient << sql;
+    for (const auto& p : params) binder << p;
+
+    binder >> [json, user_id, offset, limit, required, callbackPtr, fetch,
+               window](const Result& result) {
+      std::vector<int64_t> question_ids;
+      question_ids.reserve(result.size());
+      for (const auto& row : result) {
+        question_ids.push_back(row.at("id").as<long long>());
+      }
+
+      fetchAnsweredIds(
+          question_ids, user_id,
+          [callbackPtr, fetch, result, required, offset, limit,
+           window](const std::optional<std::unordered_set<int64_t>>& answered) {
+            if (!answered) {
+              Json::Value err;
+              err["error"] = "database error";
+              auto resp = HttpResponse::newHttpJsonResponse(err);
+              resp->setStatusCode(k500InternalServerError);
+              (*callbackPtr)(resp);
+              return;
+            }
+            const int unanswered_count = static_cast<int>(result.size()) -
+                                         static_cast<int>(answered->size());
+            // A window that was not filled completely means the ordered
+            // result set is exhausted, so no wider fetch can help.
+            const bool exhausted = static_cast<int>(result.size()) < window;
+
+            if (unanswered_count < required && !exhausted &&
+                window < kMaxUnansweredWindow) {
+              (*fetch)(std::min(window * 2, kMaxUnansweredWindow));
+              return;
+            }
+            respondWithSearchResults(result, *answered, offset, limit, true,
+                                     *callbackPtr);
+          });
+    } >> [callbackPtr](const drogon::orm::DrogonDbException& e) {
+      Json::Value err;
+      err["error"] = e.base().what();
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k500InternalServerError);
+      (*callbackPtr)(resp);
+    };
+  };
+
+  (*fetch)(std::clamp(required, kMinUnansweredWindow, kMaxUnansweredWindow));
+}
+
 }  // namespace
 
 void QuestionController::restSearchQuestions(
@@ -985,11 +1123,12 @@ void QuestionController::restSearchQuestions(
     return;
   }
 
+  // The public endpoint has no user context, so unanswered_only cannot be
+  // honoured; a client that sends it anyway gets the unfiltered result.
   std::string sql;
   std::vector<std::string> params;
   buildSearchQuery(json, offset, limit, sql, params);
-  executeSearchQuery(sql, params, std::move(callback), std::nullopt,
-                     unanswered_only, offset, limit);
+  executeSearchQuery(sql, params, std::move(callback), std::nullopt);
 }
 
 void QuestionController::restSearchQuestionsWithAuth(
@@ -1016,11 +1155,18 @@ void QuestionController::restSearchQuestionsWithAuth(
     return;
   }
 
+  // The answered-questions filter cannot be expressed in SQL (the stored hash
+  // is an HMAC keyed with a server-side secret), so the unanswered-only path
+  // paginates over the filtered result and therefore fetches its own window.
+  if (unanswered_only) {
+    executeUnansweredSearch(json, user_id, offset, limit, std::move(callback));
+    return;
+  }
+
   std::string sql;
   std::vector<std::string> params;
   buildSearchQuery(json, offset, limit, sql, params);
-  executeSearchQuery(sql, params, std::move(callback), user_id, unanswered_only,
-                     offset, limit);
+  executeSearchQuery(sql, params, std::move(callback), user_id);
 }
 
 void QuestionController::answerQuestion(
