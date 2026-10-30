@@ -643,7 +643,8 @@ static const std::vector<FilterDef> filters = {
      .column = "min_age",
      .kind = FilterKind::LessEq,
      .castSuffix = "::int",
-     .nullValue = "0"},  // default: "0" -> skip WHERE clause
+     .nullValue = ""},  // default (missing): skip WHERE clause; age=0 is a
+                        // real filter (min_age <= 0 -> non-age-gated only)
 };
 
 // Returns a canonical string representation of a filter value. Strings are
@@ -781,7 +782,7 @@ void buildSearchQuery(const Json::Value& json, int offset, int limit,
                       std::vector<std::string>& outParams) {
   outSql =
       "SELECT q.id, q.text, q.language, q.category_id, q.special_category, "
-      "c.name AS category_name FROM questions q "
+      "q.min_age, c.name AS category_name FROM questions q "
       "LEFT JOIN categories c ON c.id = q.category_id AND c.language = "
       "q.language "
       "WHERE 1=1 AND q.submission_status = 'approved'";
@@ -840,6 +841,8 @@ std::optional<Json::Value> searchRowToJson(const drogon::orm::Row& row,
       static_cast<Json::Int64>(row.at("category_id").as<long long>()));
   q["category_name"] = category_name.as<std::string>();
   q["special_category"] = row.at("special_category").as<std::string>();
+  q["min_age"] =
+      Json::Value(static_cast<Json::Int64>(row.at("min_age").as<long long>()));
   if (answered) {
     q["answered"] = Json::Value(*answered);
   }
@@ -1125,6 +1128,17 @@ void QuestionController::restSearchQuestions(
 
   // The public endpoint has no user context, so unanswered_only cannot be
   // honoured; a client that sends it anyway gets the unfiltered result.
+  // Age gating must be enforced server-side: when the client does not
+  // provide an age, default to 0 so that only questions with min_age <= 0
+  // (i.e. non-age-protected) are returned. An anonymous caller has no known
+  // age, so the most restrictive reasonable assumption (a newborn) is
+  // applied. A client that explicitly sends a higher age is trusted to do so
+  // deliberately (e.g. an admin or test harness); the authenticated
+  // endpoint should be used for end-user browsing.
+  if (!json.isMember("age")) {
+    json["age"] = 0;
+  }
+
   std::string sql;
   std::vector<std::string> params;
   buildSearchQuery(json, offset, limit, sql, params);

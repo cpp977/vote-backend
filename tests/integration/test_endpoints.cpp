@@ -723,6 +723,7 @@ TEST_CASE("Inactive user cannot set user active") {
 TEST_CASE("RestSearchQuestions with search filter returns results") {
   nlohmann::json request_body;
   request_body["search"] = "bananas";
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -753,6 +754,7 @@ TEST_CASE("RestSearchQuestions with search filter returns results") {
 TEST_CASE("RestSearchQuestions with language filter returns results") {
   nlohmann::json request_body;
   request_body["language"] = "en";
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -770,6 +772,7 @@ TEST_CASE("RestSearchQuestions with language filter returns results") {
 TEST_CASE("RestSearchQuestions with categoryIds filter returns results") {
   nlohmann::json request_body;
   request_body["categoryIds"] = nlohmann::json::array({1, 2, 3, 11, 12, 13});
+  request_body["age"] = 21;
   // Use a high limit so the full filtered set is returned (the default limit
   // of 50 would otherwise truncate it). Query both language variants of
   // Food/Mobility/Lifestyle: EN categories 1,2,3 and DE categories 11,12,13
@@ -844,12 +847,15 @@ TEST_CASE(
   CHECK(no_results);
 }
 
-TEST_CASE("RestSearchQuestions with age = 0 returns all questions (default)") {
-  // age = 0 equals the filter's nullValue, so the WHERE clause is skipped and
-  // the result is identical to sending no age at all.
+TEST_CASE(
+    "RestSearchQuestions with age = 0 returns only non-age-protected "
+    "questions") {
+  // age = 0 now means "min_age <= 0": only questions whose minimum age
+  // requirement is zero (i.e. non-age-gated) are returned. This is the
+  // default for the public endpoint when no age is sent.
   nlohmann::json body_with_age;
-  body_with_age["age"] = 100;
-  body_with_age["limit"] = 0;  // limit = 0 means "no limit" -> all questions
+  body_with_age["age"] = 0;
+  body_with_age["limit"] = 0;  // limit = 0 means "no limit" -> all matching
 
   auto resp_age = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", body_with_age.dump(),
@@ -857,6 +863,16 @@ TEST_CASE("RestSearchQuestions with age = 0 returns all questions (default)") {
   CHECK(resp_age.status == 200);
   CHECK(resp_age.json_body.is_array());
 
+  // 37 questions have min_age = 0 after the test-data overrides in 004.
+  CHECK(resp_age.json_body.size() == 37);
+
+  // Every returned question must indeed be non-age-gated (min_age == 0).
+  for (const auto& q : resp_age.json_body) {
+    CHECK(q["min_age"].get<int>() == 0);
+  }
+
+  // No age sent -> the public endpoint defaults to age = 0, yielding the same
+  // set as an explicit age = 0.
   nlohmann::json body_no_age;
   body_no_age["limit"] = 0;
 
@@ -877,7 +893,8 @@ TEST_CASE("RestSearchQuestions with age = 0 returns all questions (default)") {
 
 TEST_CASE("RestSearchQuestions with age filter combined with language filter") {
   // All questions carrying a non-zero min_age in the test data are English, so
-  // combining age = 21 with language = "en" still yields questions 7 and 9,
+  // combining age = 11 with language = "en" yields only the 22 English
+  // questions with min_age = 0 (12 > 11 and 18/21 > 11 are excluded),
   // while language = "de" yields nothing (cross-filter AND semantics).
   nlohmann::json en_body;
   en_body["age"] = 11;
@@ -909,7 +926,8 @@ TEST_CASE("RestSearchQuestions with age filter combined with language filter") {
   CHECK(no_results);
 }
 
-TEST_CASE("RestSearchQuestions with no filters returns all questions") {
+TEST_CASE(
+    "RestSearchQuestions with no filters returns non-age-protected questions") {
   nlohmann::json request_body;
 
   auto resp = test_helpers::http_request(
@@ -917,11 +935,15 @@ TEST_CASE("RestSearchQuestions with no filters returns all questions") {
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // With default pagination (limit=50), we get first 50 questions
-  CHECK(resp.json_body.size() == 50);
+  // The public endpoint defaults to age = 0, so only non-age-protected
+  // questions (min_age <= 0) are returned. 37 of the 100 seeded questions
+  // have min_age = 0 after the 004 test-data overrides.
+  CHECK(resp.json_body.size() == 37);
 }
 
-TEST_CASE("RestSearchQuestions with empty search returns all questions") {
+TEST_CASE(
+    "RestSearchQuestions with empty search returns non-age-protected "
+    "questions") {
   nlohmann::json request_body;
   request_body["search"] = "";
 
@@ -930,9 +952,9 @@ TEST_CASE("RestSearchQuestions with empty search returns all questions") {
       "application/json", global_fixture.access_token);
   CHECK(resp.status == 200);
   CHECK(resp.json_body.is_array());
-  // Empty search returns all questions
-  // With default limit=50, we get first 50
-  CHECK(resp.json_body.size() == 50);
+  // Empty search returns all questions matching the default age gate (age=0).
+  // 37 of the 100 seeded questions have min_age = 0 after the 004 overrides.
+  CHECK(resp.json_body.size() == 37);
 }
 
 TEST_CASE("RestSearchQuestions requires JSON body") {
@@ -953,6 +975,7 @@ TEST_CASE("RestSearchQuestions with malformed JSON returns 400") {
 TEST_CASE("RestSearchQuestions returns correct fields in response") {
   nlohmann::json request_body;
   request_body["search"] = "car";
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -978,6 +1001,7 @@ TEST_CASE("RestSearchQuestions returns correct fields in response") {
 TEST_CASE("RestSearchQuestions with offset parameter paginates correctly") {
   nlohmann::json request_body;
   request_body["offset"] = 10;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1000,6 +1024,7 @@ TEST_CASE("RestSearchQuestions with offset parameter paginates correctly") {
 TEST_CASE("RestSearchQuestions with limit parameter restricts results count") {
   nlohmann::json request_body;
   request_body["limit"] = 5;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1013,6 +1038,7 @@ TEST_CASE("RestSearchQuestions with limit parameter restricts results count") {
 TEST_CASE("RestSearchQuestions with limit=0 returns all questions") {
   nlohmann::json request_body;
   request_body["limit"] = 0;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1027,6 +1053,7 @@ TEST_CASE("RestSearchQuestions with limit=0 returns all questions") {
 TEST_CASE("RestSearchQuestions with limit > 1000 respects maximum limit") {
   nlohmann::json request_body;
   request_body["limit"] = 1500;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1060,6 +1087,7 @@ TEST_CASE(
   nlohmann::json request_body;
   request_body["offset"] = 20;
   request_body["limit"] = 10;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1074,6 +1102,7 @@ TEST_CASE("RestSearchQuestions offset and limit override default values") {
   nlohmann::json request_body;
   request_body["offset"] = 30;
   request_body["limit"] = 15;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1091,6 +1120,7 @@ TEST_CASE("RestSearchQuestions with offset=0 returns first N results") {
   nlohmann::json request_body;
   request_body["offset"] = 0;
   request_body["limit"] = 25;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1114,6 +1144,7 @@ TEST_CASE("RestSearchQuestions with offset=0 returns first N results") {
 TEST_CASE("RestSearchQuestions with negative offset defaults to 0") {
   nlohmann::json request_body;
   request_body["offset"] = -5;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1129,6 +1160,7 @@ TEST_CASE("RestSearchQuestions with negative offset defaults to 0") {
 TEST_CASE("RestSearchQuestions with negative limit defaults to 50") {
   nlohmann::json request_body;
   request_body["limit"] = -10;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1143,6 +1175,7 @@ TEST_CASE(
     "RestSearchQuestions preserves ORDER BY created_at DESC with pagination") {
   nlohmann::json request_body;
   request_body["limit"] = 5;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1165,6 +1198,7 @@ TEST_CASE(
   request_body["language"] = "en";
   request_body["offset"] = 10;
   request_body["limit"] = 5;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1184,6 +1218,7 @@ TEST_CASE(
   nlohmann::json request_body;
   request_body["offset"] = 75;
   request_body["limit"] = 3;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1206,6 +1241,7 @@ TEST_CASE("RestSearchQuestions zero offset with large limit works correctly") {
   nlohmann::json request_body;
   request_body["offset"] = 0;
   request_body["limit"] = 150;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1219,6 +1255,7 @@ TEST_CASE("RestSearchQuestions zero offset with large limit works correctly") {
 TEST_CASE("RestSearchQuestions without explicit offset defaults to 0") {
   nlohmann::json request_body;
   request_body["limit"] = 10;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1236,6 +1273,7 @@ TEST_CASE("RestSearchQuestions without explicit offset defaults to 0") {
 TEST_CASE("RestSearchQuestions without explicit limit defaults to 50") {
   nlohmann::json request_body;
   request_body["offset"] = 20;
+  request_body["age"] = 21;
 
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
@@ -1257,6 +1295,7 @@ TEST_CASE("RestSearchQuestions without explicit limit defaults to 50") {
 TEST_CASE("RestSearchQuestions is accessible without authentication") {
   nlohmann::json request_body;
   request_body["search"] = "bananas";
+  request_body["age"] = 21;
 
   // No bearer token — the request must still succeed because
   // /questions/restSearch is a public endpoint.
@@ -1610,6 +1649,7 @@ TEST_CASE("RestSearchQuestions returns the special_category of questions") {
   // include ids 1 and 8.
   nlohmann::json request_body;
   request_body["limit"] = 1000;
+  request_body["age"] = 21;
   auto resp = test_helpers::http_request(
       "POST", "127.0.0.1", 8848, "/questions/restSearch", request_body.dump(),
       "application/json", global_fixture.access_token);
@@ -3275,6 +3315,7 @@ TEST_CASE(
   // returns, so the test does not hard-code ids or seed assumptions.
   nlohmann::json all_body;
   all_body["limit"] = 1000;
+  all_body["age"] = 21;  // include age-gated questions in the baseline list
   auto all = test_helpers::http_request("POST", "127.0.0.1", 8848,
                                         "/questions/restSearch",
                                         all_body.dump(), "application/json");
@@ -3392,6 +3433,7 @@ TEST_CASE(
     "field") {
   nlohmann::json request_body;
   request_body["search"] = "bananas";
+  request_body["age"] = 21;
   request_body["limit"] = 1000;
 
   // Call the public endpoint
@@ -3425,6 +3467,7 @@ TEST_CASE(
   nlohmann::json request_body;
   request_body["search"] = "bananas";
   request_body["unanswered_only"] = true;
+  request_body["age"] = 21;
   request_body["limit"] = 1000;
 
   auto resp = test_helpers::http_request(

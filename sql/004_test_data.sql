@@ -81,14 +81,15 @@ VALUES (3, 12, '{"gender": "m"}');
 
 -- ---------------------------------------------------------------------------
 -- Minimum-age overrides for the age filter of POST /questions/restSearch
---   The seed data (003_seed_data.sql) leaves every question at the schema
---   default min_age = 0, so without the overrides below the age filter could
---   only ever return either everything (age = 0) or nothing (age > 0). We raise
---   min_age on a small, well-known subset of *existing* questions (no new rows,
---   so the pagination tests that assume exactly 100 questions stay valid) so
---   the GreaterEq behaviour of the filter can be exercised deterministically:
---     id 1, 3, 5 -> min_age 18   (all English)
---     id 7, 9    -> min_age 21   (all English)
+--   The seed data (003_seed_data.sql) sets min_age to either 0 or 12 for
+--   each question. We raise min_age on a small, well-known subset of
+--   *existing* questions (no new rows, so the pagination tests that assume
+--   exactly 100 questions stay valid) so the LessEq age filter
+--   (min_age <= age) can be exercised deterministically:
+--     id 1, 3, 5 -> min_age 18   (all English, were 12)
+--     id 7, 9    -> min_age 21   (all English, were 0)
+--   With age = 21 all 100 questions are visible; with the public endpoint's
+--   default of age = 0 only 37 (min_age = 0) are returned.
 -- ---------------------------------------------------------------------------
 UPDATE questions SET min_age = 18 WHERE id IN (1, 3, 5);
 UPDATE questions SET min_age = 21 WHERE id IN (7, 9);
