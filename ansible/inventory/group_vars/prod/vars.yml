@@ -27,4 +27,4 @@ vote_backend_start_services_at_boot: true
 
 vote_backend_app_reset_url: "https://reset.vote4it.org"
 
-vote_backend_allowed_origin: "https://reset.yourdomain.com"
+vote_backend_allowed_origin: "https://reset.vote4it.org"
