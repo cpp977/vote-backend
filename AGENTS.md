@@ -6,6 +6,8 @@ This is a c++ RESTful backend which uses the drogon c++ library.
 It uses a postgresql database as storage.
 Both the backend and the database are running in rootless podman containers using quadlets and systemd for orchestraction.
 
+For the **integration tests** there is also a container-free path that runs PostgreSQL and the backend natively, see [Run integration tests without containers](#run-integration-tests-without-containers). Use it whenever rootless podman is unavailable, for example inside a hardened agent sandbox where every mount is `nosuid` and `/run` is read-only: there `newuidmap` cannot gain `CAP_SETUID`, and the quadlet units have no user session to attach to.
+
 ## Ansible Playbooks
 
 Three Ansible playbooks automate the main workflows. All target the `dev` group (localhost).
@@ -73,6 +75,52 @@ state is reset on each (re)deploy.
 - **Run a single test** (Release): `CXX=clang++ ctest --preset test-release -R <TestName>`
 - **Check formatting**: `CXX=clang++ cmake --workflow --preset check-format`
 - **Auto‑format**: `CXX=clang++ cmake --workflow --preset format`
+
+## Run integration tests without containers
+
+By default `ctest` runs the integration suite the long-standing way: the test
+binary's fixture invokes `ansible/playbooks/deploy-local-test.yml`, which brings
+up the podman/quadlet stack. CI depends on this and it is unchanged.
+
+Where rootless podman is unavailable -- for example inside a hardened agent
+sandbox where every mount is `nosuid` and `/run` is read-only, so `newuidmap`
+cannot gain `CAP_SETUID` and the quadlet units have no user session -- the same
+suite can run natively. Select it with the `test-native-*` presets:
+
+```sh
+CXX=clang++ cmake --build --preset ninja-vcpkg-debug
+CXX=clang++ ctest --preset test-native-debug     # Debug
+CXX=clang++ ctest --preset test-native-release   # Release
+CXX=clang++ ctest --preset test-native-debug -R integration   # integration only
+```
+
+`VOTE_BACKEND_NATIVE=1` makes the fixture build the environment itself
+(`NativeStack` in `tests/integration/integration_helpers.hpp`): a throwaway
+PostgreSQL cluster via `initdb` in a `mktemp` directory, a freshly seeded `vote`
+database from `sql/001`...`sql/005`, and the backend binary started against it
+with `fork`/`exec`. Everything is torn down in the fixture destructor. No
+wrapper script and no manual steps.
+
+Prerequisites and gotchas:
+
+- The PostgreSQL **server** binaries must be on `PATH` (`initdb`, `pg_ctl`,
+  `psql`, `createdb`). The fixture checks and fails with a clear message.
+- **The database is rebuilt on every run, and that is required.** The suite is
+  order-dependent and mutates state (it registers users, answers questions,
+  deactivates accounts), so reusing a database makes later runs fail. This
+  mirrors `vote_backend_postgres_persistent: false` in the container path.
+- The backend config is derived from the project's own `config.json` with the
+  connection details overridden. Do not hand-assemble it: drogon reads several
+  optional keys and a missing one surfaces only as a `Json::LogicError` at
+  startup.
+- `stats_min_answers` is forced to `1` and `age_bucket_size` to `10`; the
+  statistics endpoints would otherwise answer `insufficient_data`, and several
+  tests hardcode a bucket width of 10.
+- Set `VOTE_BACKEND_NATIVE_KEEP=1` to keep the scratch directory (cluster,
+  generated `config.json`, `backend.log`, `pg.log`) for inspection. On a
+  startup failure the fixture already prints the backend log tail.
+- If the build fails with `unable to read $HOME`, the environment is missing
+  `HOME`; prefix the command with `HOME=/home/<user>`.
 
 ## Version
 

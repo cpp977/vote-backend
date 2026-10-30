@@ -110,6 +110,30 @@
       "inherits": [
         "test-ninja-vcpkg"
       ]
+    },
+    {
+      "name": "test-native-debug",
+      "description": "Test (Debug) with the integration suite running natively, without containers",
+      "displayName": "Test native (Debug)",
+      "configuration": "Debug",
+      "inherits": [
+        "test-ninja-vcpkg"
+      ],
+      "environment": {
+        "VOTE_BACKEND_NATIVE": "1"
+      }
+    },
+    {
+      "name": "test-native-release",
+      "description": "Test (Release) with the integration suite running natively, without containers",
+      "displayName": "Test native (Release)",
+      "configuration": "Release",
+      "inherits": [
+        "test-ninja-vcpkg"
+      ],
+      "environment": {
+        "VOTE_BACKEND_NATIVE": "1"
+      }
     }
   ]
 }
