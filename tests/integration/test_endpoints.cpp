@@ -1,5 +1,6 @@
 #include <ctime>
 #include <set>
+#include <unordered_set>
 
 #include "integration_helpers.hpp"
 
@@ -3248,6 +3249,118 @@ TEST_CASE(
   // All returned questions must have answered=false
   for (const auto& q : resp.json_body) {
     CHECK(q["answered"] == false);
+  }
+}
+
+// Regression test for the pagination bug in the unanswered_only path.
+//
+// The endpoint orders questions by created_at DESC and filters out the ones
+// the caller has already answered. When the newest questions are exactly the
+// answered ones, a fixed-size fetch window comes back empty (or short), so
+// page 1 of the unanswered list is empty even though plenty of unanswered
+// questions exist further down the ordering.
+//
+// The fix must keep widening the fetch until enough unanswered rows have been
+// collected, so every page matches the same slice of the unanswered list.
+TEST_CASE(
+    "RestSearchQuestionsWithAuth paginates unanswered questions correctly "
+    "when the newest questions are answered") {
+  // A dedicated user so the answered set starts out empty and is not
+  // influenced by the other test cases.
+  std::string token = test_helpers::authenticate(
+      "127.0.0.1", 8848, "RestSearchPaginator",
+      "restsearchpaginator@example.com", "password123");
+
+  // The canonical ordering (created_at DESC) is whatever the endpoint itself
+  // returns, so the test does not hard-code ids or seed assumptions.
+  nlohmann::json all_body;
+  all_body["limit"] = 1000;
+  auto all = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                        "/questions/restSearch",
+                                        all_body.dump(), "application/json");
+  REQUIRE(all.status == 200);
+  REQUIRE(all.json_body.is_array());
+
+  std::vector<int> ordered_ids;
+  ordered_ids.reserve(all.json_body.size());
+  for (const auto& q : all.json_body) {
+    ordered_ids.push_back(q["id"].get<int>());
+  }
+
+  // Answer a long enough run of the newest answerable questions that any
+  // fixed multiple of the page size is exhausted. With 20 answered and a page
+  // size of 3, a "limit * 3" style over-fetch returns nothing at all.
+  //
+  // Only questions flagged special_category == "none" are answerable without
+  // sending an explicit consent flag, so skip the others: earlier test cases
+  // create questions carrying a special category, and those sit at the front of
+  // the created_at DESC ordering.
+  const int answered_count = 20;
+  REQUIRE(ordered_ids.size() > static_cast<size_t>(answered_count + 10));
+
+  std::vector<int> answered_ids;
+  answered_ids.reserve(answered_count);
+  for (size_t i = 0; i < all.json_body.size() &&
+                     static_cast<int>(answered_ids.size()) < answered_count;
+       ++i) {
+    const auto& q = all.json_body[i];
+    if (q["special_category"].get<std::string>() != "none") {
+      continue;
+    }
+    const int qid = q["id"].get<int>();
+    const std::string qid_str = std::to_string(qid);
+
+    // Pick a valid answer option of that question dynamically rather than
+    // relying on the seed layout.
+    auto options = test_helpers::http_request(
+        "GET", "127.0.0.1", 8848, "/questions/" + qid_str + "/answers", "",
+        "application/json", token);
+    REQUIRE(options.status == 200);
+    REQUIRE(!options.json_body.empty());
+
+    nlohmann::json answer_body = {
+        {"answer_id", options.json_body[0]["id"].get<long long>()}};
+    auto answer_resp = test_helpers::http_request(
+        "POST", "127.0.0.1", 8848, "/questions/" + qid_str + "/answer",
+        answer_body.dump(), "application/json", token);
+    REQUIRE(answer_resp.status == 201);
+    answered_ids.push_back(qid);
+  }
+  REQUIRE(static_cast<int>(answered_ids.size()) == answered_count);
+
+  // The expected unanswered list is the full ordering minus the answered ids.
+  const std::unordered_set<int> answered_set(answered_ids.begin(),
+                                             answered_ids.end());
+  std::vector<int> expected;
+  expected.reserve(ordered_ids.size());
+  for (const int id : ordered_ids) {
+    if (answered_set.count(id) == 0) {
+      expected.push_back(id);
+    }
+  }
+
+  // Walk several pages, including a non-zero offset. Each page must be full
+  // and must match the corresponding slice of the expected list.
+  const int page_size = 3;
+  for (int offset = 0; offset < 12; offset += page_size) {
+    nlohmann::json body;
+    body["unanswered_only"] = true;
+    body["limit"] = page_size;
+    body["offset"] = offset;
+
+    auto page = test_helpers::http_request(
+        "POST", "127.0.0.1", 8848, "/questions/restSearch-with-auth",
+        body.dump(), "application/json", token);
+    INFO("offset " << offset);
+    REQUIRE(page.status == 200);
+    REQUIRE(page.json_body.is_array());
+    REQUIRE(page.json_body.size() == page_size);
+
+    for (size_t i = 0; i < page.json_body.size(); ++i) {
+      INFO("offset " << offset << " position " << i);
+      CHECK(page.json_body[i]["id"].get<int>() == expected[offset + i]);
+      CHECK(page.json_body[i]["answered"] == false);
+    }
   }
 }
 
