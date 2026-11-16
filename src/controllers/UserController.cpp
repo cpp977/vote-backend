@@ -30,6 +30,13 @@
 
 #include "vote-backend/utils/ErrorResponse.hpp"
 
+// Provided by CMake (see target_compile_definitions) from
+// project(vote-backend VERSION ...), so the reported version always matches the
+// binary that is actually running.
+#ifndef VOTE_BACKEND_VERSION
+#define VOTE_BACKEND_VERSION "unknown"
+#endif
+
 using namespace drogon;
 using drogon::orm::DrogonDbException;
 using drogon::orm::Result;
@@ -333,4 +340,14 @@ void UserController::list_regions(
                                  e.base().what());
         send_db_internal_server_error(*callbackPtr, e);
       });
+}
+
+void UserController::get_version(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& cb) {
+  (void)req;  // unused
+
+  Json::Value ret;
+  ret["version"] = VOTE_BACKEND_VERSION;
+  cb(HttpResponse::newHttpJsonResponse(ret));
 }

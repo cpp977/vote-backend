@@ -8,6 +8,8 @@ This C++ RESTful backend uses the **Drogon** framework and provides a set of HTT
 
 The backend reads configuration from `config.json` (e.g., JWT secret, token expiry). Ensure the file is present at the repository root.
 
+The version reported by `GET /version` is **not** part of `config.json`. It is defined once in `CMakeLists.txt` via `project(vote-backend VERSION ...)` and baked into the binary at configure time (the `VOTE_BACKEND_VERSION` compile definition). Configuring the project additionally (re)generates `version.txt` at the repository root from the same value; that file is only consumed by external tooling (the Ansible deployment, the quadlet instance name and the container image tag), never by the running backend.
+
 ## Endpoints
 
 | Method | Path | Description | Authentication | Request Body | Response |
@@ -72,6 +74,7 @@ The backend reads configuration from `config.json` (e.g., JWT secret, token expi
 | **GET** | `/questions/{id}/answers-with-auth` | Get the answer options for a question. Returns options for approved questions, and also allows the question owner to see options for their own pending submissions. | Bearer access token | – | *200 OK* – array of answer option objects (`id`, `question_id`, `text`). Errors: 401 (unauthorized), 404 (question not found or not visible to you), 500 (DB error). |
 | **GET** | `/countries` | Return all entries from the **countries** reference table. Unrestricted endpoint; returns each country's ISO 3166‑1 alpha‑2 `code` and human‑readable `name`. Useful for client‑side UI dropdowns. | No | – | *200 OK* – array of country objects (`{ "code": "string", "name": "string" }`). |
 | **GET** | `/regions` | Return all entries from the **regions** reference table. Unrestricted endpoint; returns each ISO 3166‑2 subdivision `code`, `name`, and the parent `country_code`. Enables filtered region selection and UI validation of region inputs. | No | – | *200 OK* – array of region objects (`{ "code": "string", "name": "string", "country_code": "string" }`). |
+| **GET** | `/version` | Return the version of the running backend. Unrestricted endpoint; useful for client‑side compatibility checks and for verifying which build a deployment is serving. The value is baked into the binary when CMake configures the project (see [Configuration](#configuration)), so it always describes the running build and does not depend on any file being present at runtime. Answers `OPTIONS` preflight requests with *204 No Content*. | No | – | *200 OK* – `{ "version": "0.1.0" }`. |
 
 ## Authentication Details
 

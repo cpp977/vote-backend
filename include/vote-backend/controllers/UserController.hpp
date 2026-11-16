@@ -43,6 +43,9 @@ class UserController : public drogon::HttpController<UserController> {
   // Unrestricted endpoint to list all regions
   ADD_METHOD_TO(UserController::list_regions, "/regions", drogon::Get,
                 drogon::Options);
+  // Unrestricted endpoint to get the backend version
+  ADD_METHOD_TO(UserController::get_version, "/version", drogon::Get,
+                drogon::Options);
   METHOD_LIST_END
 
   void list_users(const HttpRequestPtr& req,
@@ -68,4 +71,7 @@ class UserController : public drogon::HttpController<UserController> {
 
   void list_regions(const HttpRequestPtr& req,
                     std::function<void(const HttpResponsePtr&)>&& cb);
+
+  void get_version(const HttpRequestPtr& req,
+                   std::function<void(const HttpResponsePtr&)>&& cb);
 };

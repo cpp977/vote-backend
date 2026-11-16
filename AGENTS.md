@@ -126,7 +126,10 @@ Prerequisites and gotchas:
 
 The project version is defined **once** in `CMakeLists.txt` via `project(vote-backend VERSION ...)`.
 CMake generates `version.txt` at configure time; the Ansible deployment and quadlet template
-(`quadlets/vote-backend@.container.j2`) derive their image tag from it.
+(`quadlets/vote-backend@.container.j2`) derive their image tag from it. The same value is baked into
+the binary as the `VOTE_BACKEND_VERSION` compile definition, which is what the unrestricted
+`GET /version` endpoint reports — the container image ships no `version.txt`, so the endpoint must not
+read one at runtime.
 
 ## Build container (compilation included)
 - `CXX=clang++ cmake --preset ninja-multi-vcpkg` (generates `version.txt`)

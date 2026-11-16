@@ -6,6 +6,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Generate version.txt for external tooling (Ansible, etc.)
 file(GENERATE OUTPUT "${CMAKE_SOURCE_DIR}/version.txt" CONTENT "${PROJECT_VERSION}\n")
+
+# The version is also baked into the binary: GET /version has to report it
+# regardless of the process' working directory, and the container image ships no
+# version.txt. The generated file above stays the input for the Ansible
+# deployment and the quadlet image tag.
+set(VOTE_BACKEND_VERSION_DEFINITION VOTE_BACKEND_VERSION="${PROJECT_VERSION}")
 if(NOT APPLE)
     # set(CMAKE_CXX_CLANG_TIDY clang-tidy)
 endif()
@@ -46,6 +52,7 @@ set(
 add_executable(main src/main.cpp ${VOTE_BACKEND_SOURCES})
 target_link_libraries(main PRIVATE Drogon::Drogon fmt::fmt-header-only unofficial::argon2::libargon2 jwt-cpp::jwt-cpp OpenSSL::SSL OpenSSL::Crypto Boost::boost)
 target_include_directories(main PRIVATE include)
+target_compile_definitions(main PRIVATE ${VOTE_BACKEND_VERSION_DEFINITION})
 set_property(TARGET main PROPERTY CXX_STANDARD 23)
 
 # Testing configuration
@@ -83,6 +90,7 @@ target_link_libraries(vote_backend_tests PRIVATE
     Boost::boost
 )
 target_include_directories(vote_backend_tests PRIVATE include)
+target_compile_definitions(vote_backend_tests PRIVATE ${VOTE_BACKEND_VERSION_DEFINITION})
 set_property(TARGET vote_backend_tests PROPERTY CXX_STANDARD 23)
 
 # Register unit tests with ctest

@@ -1,5 +1,7 @@
 #include <ctime>
+#include <fstream>
 #include <set>
+#include <string>
 #include <unordered_set>
 
 #include "integration_helpers.hpp"
@@ -109,6 +111,61 @@ TEST_CASE("GET /regions returns all regions (unrestricted)") {
     CHECK(!resp.json_body[i]["name"].empty());
     CHECK(!resp.json_body[i]["country_code"].empty());
   }
+}
+
+// Reads the version the binary was built from. CMake generates version.txt in
+// the source tree from project(vote-backend VERSION ...), the same value it
+// bakes into the binary via the VOTE_BACKEND_VERSION compile definition, so the
+// file is the expectation the endpoint has to fulfil.
+static std::string expected_backend_version() {
+  const std::string path =
+      fmt::format("{}/version.txt", get_env("VOTE_BACKEND_SRC", "."));
+  std::ifstream version_file(path);
+  if (!version_file.is_open()) {
+    throw std::runtime_error("cannot read " + path);
+  }
+  std::string version;
+  std::getline(version_file, version);
+  if (version.empty()) {
+    throw std::runtime_error(path + " is empty");
+  }
+  return version;
+}
+
+TEST_CASE("GET /version returns the backend version (unrestricted)") {
+  const std::string expected = expected_backend_version();
+
+  // No Authorization header: the endpoint is unrestricted.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/version",
+                                         "", "application/json");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body.is_object());
+  test_helpers::check_json_has_keys(resp.json_body, {"version"},
+                                    "GET /version");
+  CHECK(resp.json_body["version"].is_string());
+  CHECK(resp.json_body["version"].get<std::string>() == expected);
+  // "unknown" is the fallback for builds without the version definition; it
+  // must never be what a released binary reports.
+  CHECK(resp.json_body["version"].get<std::string>() != "unknown");
+}
+
+TEST_CASE("GET /version ignores authentication state") {
+  // A bogus token must not turn the unrestricted endpoint into a 401: no filter
+  // is attached to /version, so the header is simply never inspected.
+  auto resp = test_helpers::http_request("GET", "127.0.0.1", 8848, "/version",
+                                         "", "application/json", "not-a-token");
+  CHECK(resp.status == 200);
+  CHECK(resp.json_body["version"].get<std::string>() ==
+        expected_backend_version());
+}
+
+// /version is registered with drogon::Options like the other unrestricted
+// endpoints, so a CORS preflight is answered by the framework itself (204, no
+// body) instead of reaching the handler.
+TEST_CASE("GET /version answers the OPTIONS preflight") {
+  auto resp = test_helpers::http_request("OPTIONS", "127.0.0.1", 8848,
+                                         "/version", "", "application/json");
+  CHECK(resp.status == 204);
 }
 
 TEST_CASE("GetQuestionsByLanguage returns only English questions") {
