@@ -116,7 +116,11 @@ class QuestionController : public drogon::HttpController<QuestionController> {
   void listSubmissions(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
-  // POST /admin/questions/{1}/approve: mark a submission as approved.
+  // POST /admin/questions/{1}/approve: complete a pending submission and mark
+  // it as approved. The optional body carries min_age, special_category, and
+  // the category_id / answer_options an administrator fills in for a
+  // submission that was filed without them; approving fails with 400 while the
+  // question would go public without a category or without answers.
   void approveQuestion(const drogon::HttpRequestPtr& req,
                        std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                        int questionId);
@@ -152,7 +156,9 @@ class QuestionController : public drogon::HttpController<QuestionController> {
               std::function<void(const drogon::HttpResponsePtr&)>&& cb,
               int questionId);
   // POST /questions/submissions: create a *pending* submission owned by the
-  // caller; it is not publicly visible until an admin approves it.
+  // caller; it is not publicly visible until an admin approves it. Only the
+  // question text is mandatory: category_id and answer_options are optional and
+  // completed by an administrator during approval.
   void submitQuestion(const drogon::HttpRequestPtr& req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& cb);
 };

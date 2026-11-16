@@ -2373,41 +2373,422 @@ TEST_CASE(
   CHECK(other_opts.status == 404);
 }
 
-TEST_CASE("SubmissionWorkflow requires answer_options") {
+TEST_CASE("SubmissionWorkflow accepts a submission without answer options") {
   auto user_token =
       test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
 
-  // 1. Missing answer_options -> 400.
+  // 1. Only text and language: the question is stored without answer options
+  // and has to be completed by an administrator before it may be approved.
   nlohmann::json missing = {{"text", "What is your favorite color?"},
-                            {"category_id", 1},
                             {"language", "en"}};
   auto r1 = test_helpers::http_request("POST", "127.0.0.1", 8848,
                                        "/questions/submissions", missing.dump(),
                                        "application/json", user_token);
-  CHECK(r1.status == 400);
-  CHECK(r1.json_body.contains("error"));
+  CHECK(r1.status == 201);
+  CHECK(r1.json_body["submission_status"] == "pending");
+  CHECK(r1.json_body["answer_options"].is_array());
+  CHECK(r1.json_body["answer_options"].empty());
 
-  // 2. Empty answer_options array -> 400.
-  nlohmann::json empty = {{"text", "What is your favorite color?"},
-                          {"category_id", 1},
+  // 2. An explicitly empty list is the same as no list at all.
+  nlohmann::json empty = {{"text", "Do you like empty lists?"},
                           {"language", "en"},
                           {"answer_options", nlohmann::json::array()}};
   auto r2 = test_helpers::http_request("POST", "127.0.0.1", 8848,
                                        "/questions/submissions", empty.dump(),
                                        "application/json", user_token);
+  CHECK(r2.status == 201);
+  CHECK(r2.json_body["answer_options"].empty());
+
+  // 3. Blank entries are dropped instead of rejected, so a dialog that always
+  // posts its (possibly untouched) input fields still succeeds.
+  nlohmann::json blank = {{"text", "Are blank options dropped?"},
+                          {"language", "en"},
+                          {"answer_options", {"", "   ", "\t"}}};
+  auto r3 = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                       "/questions/submissions", blank.dump(),
+                                       "application/json", user_token);
+  CHECK(r3.status == 201);
+  CHECK(r3.json_body["answer_options"].empty());
+}
+
+TEST_CASE("SubmissionWorkflow normalizes the submitted answer options") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  // Texts are trimmed, blank entries are dropped and duplicates are removed,
+  // keeping the order of the first occurrence.
+  nlohmann::json body = {{"text", "How do you like your eggs?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options",
+                          {" fried ", "fried", "", "  ", "boiled",
+                           nlohmann::json{{"text", " scrambled "}}}}};
+  auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                         "/questions/submissions", body.dump(),
+                                         "application/json", user_token);
+  CHECK(resp.status == 201);
+  REQUIRE(resp.json_body["answer_options"].is_array());
+  REQUIRE(resp.json_body["answer_options"].size() == 3);
+  CHECK(resp.json_body["answer_options"][0]["text"] == "fried");
+  CHECK(resp.json_body["answer_options"][1]["text"] == "boiled");
+  CHECK(resp.json_body["answer_options"][2]["text"] == "scrambled");
+}
+
+TEST_CASE(
+    "SubmissionWorkflow rejects invalid category and answer option input") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  // 1. A category that does not exist -> 400 (the text and language are valid).
+  nlohmann::json unknown_category = {{"text", "Who is going to win?"},
+                                     {"category_id", 999999},
+                                     {"language", "en"}};
+  auto r1 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions",
+      unknown_category.dump(), "application/json", user_token);
+  CHECK(r1.status == 400);
+  CHECK(r1.json_body.contains("error"));
+
+  // 2. A category of another language -> 400; the seed category 11 ("Essen")
+  // is German, the question is asked in English.
+  nlohmann::json wrong_language = {
+      {"text", "Wer gewinnt?"}, {"category_id", 11}, {"language", "en"}};
+  auto r2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions",
+      wrong_language.dump(), "application/json", user_token);
   CHECK(r2.status == 400);
   CHECK(r2.json_body.contains("error"));
 
-  // 3. Answer option without a non-empty text -> 400.
-  nlohmann::json bad = {{"text", "What is your favorite color?"},
-                        {"category_id", 1},
-                        {"language", "en"},
-                        {"answer_options", {""}}};
-  auto r3 = test_helpers::http_request("POST", "127.0.0.1", 8848,
-                                       "/questions/submissions", bad.dump(),
-                                       "application/json", user_token);
+  // 3. A category that is not an integer -> 400.
+  nlohmann::json string_category = {{"text", "Who is going to win?"},
+                                    {"category_id", "one"},
+                                    {"language", "en"}};
+  auto r3 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions",
+      string_category.dump(), "application/json", user_token);
   CHECK(r3.status == 400);
   CHECK(r3.json_body.contains("error"));
+
+  // 4. More than 50 answer options -> 400.
+  nlohmann::json too_many = {
+      {"text", "Too many options?"}, {"category_id", 1}, {"language", "en"}};
+  nlohmann::json options = nlohmann::json::array();
+  for (int i = 0; i < 51; ++i) {
+    options.push_back("Option " + std::to_string(i));
+  }
+  too_many["answer_options"] = options;
+  auto r4 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", too_many.dump(),
+      "application/json", user_token);
+  CHECK(r4.status == 400);
+  CHECK(r4.json_body.contains("error"));
+
+  // 5. answer_options that is not an array -> 400.
+  nlohmann::json not_an_array = {{"text", "Not an array?"},
+                                 {"category_id", 1},
+                                 {"language", "en"},
+                                 {"answer_options", "Yes"}};
+  auto r5 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", not_an_array.dump(),
+      "application/json", user_token);
+  CHECK(r5.status == 400);
+  CHECK(r5.json_body.contains("error"));
+
+  // 6. An entry that is neither a string nor an object with a text -> 400.
+  nlohmann::json bad_entry = {{"text", "Bad entry?"},
+                              {"category_id", 1},
+                              {"language", "en"},
+                              {"answer_options", {42}}};
+  auto r6 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", bad_entry.dump(),
+      "application/json", user_token);
+  CHECK(r6.status == 400);
+  CHECK(r6.json_body.contains("error"));
+}
+
+TEST_CASE("SubmissionWorkflow accepts a submission without a category") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+
+  // Only the text and the language are mandatory: the submission is stored
+  // with a NULL category for an administrator to fill in during approval.
+  nlohmann::json body = {{"text", "Who is going to win?"}, {"language", "en"}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  CHECK(create.json_body["submission_status"] == "pending");
+  CHECK(create.json_body["category_id"].is_null());
+  int new_id = create.json_body["id"].get<int>();
+
+  // The submitter's own listing reports the missing category as null as well.
+  auto mine =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions/mine",
+                                 "", "application/json", user_token);
+  CHECK(mine.status == 200);
+  bool found = false;
+  for (const auto& s : mine.json_body) {
+    if (s["id"].get<int>() == new_id) {
+      found = true;
+      CHECK(s["submission_status"] == "pending");
+      CHECK(s["category_id"].is_null());
+    }
+  }
+  CHECK(found);
+}
+
+TEST_CASE(
+    "ApproveQuestion completes a submission filed without category and "
+    "answer options") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  nlohmann::json body = {{"text", "Who is going to win?"}, {"language", "en"}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+  const std::string approve_url =
+      "/admin/questions/" + std::to_string(new_id) + "/approve";
+
+  // 1. Neither a category nor answer options -> 400; an approved question is
+  // always complete.
+  nlohmann::json incomplete = nlohmann::json::object();
+  auto r1 = test_helpers::http_request("POST", "127.0.0.1", 8848, approve_url,
+                                       incomplete.dump(), "application/json",
+                                       admin_token);
+  CHECK(r1.status == 400);
+  CHECK(r1.json_body.contains("error"));
+
+  // 2. A category alone is not enough: the answers are still missing.
+  nlohmann::json category_only = {{"category_id", 1}};
+  auto r2 = test_helpers::http_request("POST", "127.0.0.1", 8848, approve_url,
+                                       category_only.dump(), "application/json",
+                                       admin_token);
+  CHECK(r2.status == 400);
+  CHECK(r2.json_body.contains("error"));
+
+  // 3. Answer options alone are not enough: the category is still missing.
+  nlohmann::json options_only = {{"answer_options", {"Team A", "Team B"}}};
+  auto r3 = test_helpers::http_request("POST", "127.0.0.1", 8848, approve_url,
+                                       options_only.dump(), "application/json",
+                                       admin_token);
+  CHECK(r3.status == 400);
+  CHECK(r3.json_body.contains("error"));
+
+  // 4. The rejected attempts left the submission pending.
+  auto mine =
+      test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions/mine",
+                                 "", "application/json", user_token);
+  CHECK(mine.status == 200);
+  bool still_pending = false;
+  for (const auto& s : mine.json_body) {
+    if (s["id"].get<int>() == new_id)
+      still_pending = s["submission_status"] == "pending";
+  }
+  CHECK(still_pending);
+
+  // 5. Category and answer options together complete the submission.
+  nlohmann::json complete = {{"min_age", 16},
+                             {"special_category", "none"},
+                             {"category_id", 1},
+                             {"answer_options", {"Team A", "Team B"}}};
+  auto approve = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                            approve_url, complete.dump(),
+                                            "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+  CHECK(approve.json_body["category_id"] == 1);
+  CHECK(approve.json_body["min_age"] == 16);
+  CHECK_FALSE(approve.json_body["reviewed_by"].is_null());
+  // The response carries the answer options so a client can refresh from a
+  // single call.
+  REQUIRE(approve.json_body.contains("answer_options"));
+  REQUIRE(approve.json_body["answer_options"].size() == 2);
+  std::set<std::string> texts;
+  for (const auto& o : approve.json_body["answer_options"]) {
+    CHECK(o["question_id"] == new_id);
+    texts.insert(o["text"].get<std::string>());
+  }
+  CHECK(texts.count("Team A") == 1);
+  CHECK(texts.count("Team B") == 1);
+
+  // 6. The completed question is public, listed with its category and votable.
+  auto get_one = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848, "/questions/" + std::to_string(new_id), "",
+      "application/json", user_token);
+  CHECK(get_one.status == 200);
+  CHECK(get_one.json_body["category_id"] == 1);
+
+  auto visible = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", user_token);
+  CHECK(visible.status == 200);
+  REQUIRE(visible.json_body.size() == 2);
+
+  // The public search returns it with the category name it was filed under.
+  nlohmann::json search = {{"language", "en"}, {"age", 120}, {"limit", 1000}};
+  auto found = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                          "/questions/restSearch",
+                                          search.dump(), "application/json");
+  CHECK(found.status == 200);
+  bool in_search = false;
+  for (const auto& q : found.json_body) {
+    if (q["id"].get<int>() == new_id) {
+      in_search = true;
+      CHECK(q["category_id"] == 1);
+      CHECK_FALSE(q["category_name"].is_null());
+    }
+  }
+  CHECK(in_search);
+
+  // 7. The question can be voted on.
+  nlohmann::json answer = {{"answer_id", visible.json_body[0]["id"]}};
+  auto vote = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answer", answer.dump(),
+      "application/json", user_token);
+  CHECK(vote.status == 201);
+}
+
+TEST_CASE("ApproveQuestion keeps the answer options of the submission") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // 1. A submission with a category and answer options is approved exactly as
+  // before: an approval without any completion succeeds.
+  nlohmann::json body = {{"text", "Should voting be mandatory?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  int new_id = create.json_body["id"].get<int>();
+
+  nlohmann::json empty_approval = nlohmann::json::object();
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      empty_approval.dump(), "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+  CHECK(approve.json_body["category_id"] == 1);
+  REQUIRE(approve.json_body["answer_options"].size() == 2);
+
+  // 2. Approving a question that already has answer options with new ones is
+  // refused: the answers a user submitted are never replaced.
+  nlohmann::json second = {{"text", "Should pets be allowed to vote?"},
+                           {"category_id", 1},
+                           {"language", "en"},
+                           {"answer_options", {"Yes", "No"}}};
+  auto create2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", second.dump(),
+      "application/json", user_token);
+  CHECK(create2.status == 201);
+  int new_id2 = create2.json_body["id"].get<int>();
+
+  nlohmann::json with_options = {{"category_id", 1},
+                                 {"answer_options", {"Maybe"}}};
+  auto conflict = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id2) + "/approve",
+      with_options.dump(), "application/json", admin_token);
+  CHECK(conflict.status == 409);
+  CHECK(conflict.json_body.contains("error"));
+
+  // 3. A submission filed without a category but with answer options only
+  // needs the category; the submitted options are kept.
+  nlohmann::json third = {{"text", "Do you like pineapple on pizza?"},
+                          {"language", "en"},
+                          {"answer_options", {"Yes", "No", "It depends"}}};
+  auto create3 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", third.dump(),
+      "application/json", user_token);
+  CHECK(create3.status == 201);
+  CHECK(create3.json_body["category_id"].is_null());
+  CHECK(create3.json_body["answer_options"].size() == 3);
+  int new_id3 = create3.json_body["id"].get<int>();
+
+  nlohmann::json category_only = {{"category_id", 2}};
+  auto approve3 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id3) + "/approve",
+      category_only.dump(), "application/json", admin_token);
+  CHECK(approve3.status == 200);
+  CHECK(approve3.json_body["category_id"] == 2);
+  REQUIRE(approve3.json_body["answer_options"].size() == 3);
+}
+
+TEST_CASE("ApproveQuestion only reviews a pending submission") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // Approving the same submission twice: the second attempt is refused instead
+  // of silently overwriting the first review.
+  nlohmann::json body = {{"text", "Can a submission be approved twice?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes", "No"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  const std::string approve_url =
+      "/admin/questions/" + std::to_string(create.json_body["id"].get<int>()) +
+      "/approve";
+
+  nlohmann::json empty_approval = nlohmann::json::object();
+  auto first = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                          approve_url, empty_approval.dump(),
+                                          "application/json", admin_token);
+  CHECK(first.status == 200);
+
+  auto second = test_helpers::http_request("POST", "127.0.0.1", 8848,
+                                           approve_url, empty_approval.dump(),
+                                           "application/json", admin_token);
+  CHECK(second.status == 409);
+  CHECK(second.json_body.contains("error"));
+
+  // A rejected submission cannot be approved either.
+  nlohmann::json other = {{"text", "Can a rejected submission be approved?"},
+                          {"category_id", 1},
+                          {"language", "en"},
+                          {"answer_options", {"Yes", "No"}}};
+  auto create2 = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", other.dump(),
+      "application/json", user_token);
+  CHECK(create2.status == 201);
+  const std::string approve_url2 =
+      "/admin/questions/" + std::to_string(create2.json_body["id"].get<int>()) +
+      "/approve";
+  auto reject = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(create2.json_body["id"].get<int>()) +
+          "/reject",
+      "", "application/json", admin_token);
+  CHECK(reject.status == 200);
+
+  auto approve_rejected = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, approve_url2, empty_approval.dump(),
+      "application/json", admin_token);
+  CHECK(approve_rejected.status == 409);
+  CHECK(approve_rejected.json_body.contains("error"));
+
+  // And approving a question that does not exist is still a 404.
+  auto missing = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/admin/questions/999999/approve",
+      empty_approval.dump(), "application/json", admin_token);
+  CHECK(missing.status == 404);
 }
 
 TEST_CASE(

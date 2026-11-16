@@ -44,13 +44,105 @@ namespace {
 const std::set<std::string> kSortableColumns = {
     "id", "text", "category_id", "language", "min_age", "created_at"};
 
+// Serializes the nullable questions.category_id column. A question may be
+// filed without a category, in which case an administrator assigns one while
+// approving it; such a question reports `null` (the client renders that as
+// "Uncategorized") instead of a number.
+Json::Value categoryIdToJson(const drogon::orm::Field& field) {
+  if (field.isNull()) {
+    return Json::Value(Json::nullValue);
+  }
+  return Json::Value(static_cast<Json::Int64>(field.as<long long>()));
+}
+
+// Maximum number of answer options a question may carry. Mirrors
+// kMaxAnswerOptions in the client (lib/utils/constants.dart).
+constexpr size_t kMaxAnswerOptions = 50;
+
+// Strips leading and trailing whitespace.
+std::string trimText(const std::string& text) {
+  const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+  const auto begin = std::find_if(text.begin(), text.end(), notSpace);
+  const auto end = std::find_if(text.rbegin(), text.rend(), notSpace).base();
+  return begin < end ? std::string(begin, end) : std::string();
+}
+
+// Serializes the `id`, `text` rows of an answer_options query into the
+// "answer_options" JSON array of a submission. `questionId` is the question the
+// rows belong to.
+Json::Value answerOptionsToJson(const drogon::orm::Result& rows,
+                                int64_t questionId) {
+  Json::Value arr(Json::arrayValue);
+  for (const auto& row : rows) {
+    Json::Value o;
+    o["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
+    o["question_id"] = Json::Value(static_cast<Json::Int64>(questionId));
+    o["text"] = row["text"].as<std::string>();
+    arr.append(o);
+  }
+  return arr;
+}
+
+// Result of normalizing a JSON "answer_options" member.
+struct AnswerOptions {
+  // Client-facing message when `ok` is false.
+  std::string error;
+  // Option texts to store, in the order they were submitted.
+  std::vector<std::string> texts;
+  bool ok = false;
+};
+
+// Normalizes the JSON value of an "answer_options" member into the texts that
+// are stored in the answer_options table. Every entry is either a string or an
+// object carrying a "text" string; the texts are trimmed, blank entries are
+// dropped and duplicates are removed (the first occurrence wins).
+//
+// An empty list is a valid result: a question may be filed without answer
+// options, and an administrator completes them during approval.
+AnswerOptions normalizeAnswerOptions(const Json::Value& value) {
+  AnswerOptions out;
+  if (!value.isArray()) {
+    out.error = "Field 'answer_options' must be an array of strings or objects";
+    return out;
+  }
+  // Guards against unreasonably large payloads.
+  if (value.size() > kMaxAnswerOptions) {
+    out.error = "Field 'answer_options' must not contain more than " +
+                std::to_string(kMaxAnswerOptions) + " entries";
+    return out;
+  }
+  std::set<std::string> seen;
+  for (const auto& entry : value) {
+    std::string text;
+    if (entry.isString()) {
+      text = entry.asString();
+    } else if (entry.isObject() && entry.isMember("text") &&
+               entry["text"].isString()) {
+      text = entry["text"].asString();
+    } else {
+      out.error =
+          "Each answer option must be a string or an object with a "
+          "non-empty 'text' field";
+      return out;
+    }
+    text = trimText(text);
+    if (text.empty()) {
+      continue;  // blank entries are dropped
+    }
+    if (seen.insert(text).second) {
+      out.texts.push_back(std::move(text));
+    }
+  }
+  out.ok = true;
+  return out;
+}
+
 // Serialize a questions row (with the submission columns) to JSON.
 Json::Value questionToJson(const drogon::orm::Row& row) {
   Json::Value q;
   q["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
   q["text"] = row["text"].as<std::string>();
-  q["category_id"] =
-      Json::Value(static_cast<Json::Int64>(row["category_id"].as<long long>()));
+  q["category_id"] = categoryIdToJson(row["category_id"]);
   q["language"] = row["language"].as<std::string>();
   q["min_age"] =
       Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
@@ -818,16 +910,22 @@ void buildSearchQuery(const Json::Value& json, int offset, int limit,
 // `err` when the row references a category that has no translation in the
 // question's language — a data inconsistency that has to surface as 500
 // instead of being reported as a missing category name.
+//
+// A question without a category is not an inconsistency: the category fields
+// are then reported as null. Only approved questions without answers or
+// category exist, and approving enforces both, so this is a defensive path for
+// rows that were written before the invariant held.
 std::optional<Json::Value> searchRowToJson(const drogon::orm::Row& row,
                                            std::optional<bool> answered,
                                            Json::Value& err) {
+  const auto& category_id = row.at("category_id");
   const auto& category_name = row.at("category_name");
-  if (category_name.isNull()) {
+  if (!category_id.isNull() && category_name.isNull()) {
     LOG_ERROR << fmt::format(
         "Question {} (language {}) references category {} which has no "
         "translation in that language",
         row.at("id").as<long long>(), row.at("language").as<std::string>(),
-        row.at("category_id").as<long long>());
+        category_id.as<long long>());
     err["error"] =
         "Data inconsistency: a question references a category that is not "
         "available in the question's language";
@@ -837,9 +935,10 @@ std::optional<Json::Value> searchRowToJson(const drogon::orm::Row& row,
   q["id"] = Json::Value(static_cast<Json::Int64>(row.at("id").as<long long>()));
   q["text"] = row.at("text").as<std::string>();
   q["language"] = row.at("language").as<std::string>();
-  q["category_id"] = Json::Value(
-      static_cast<Json::Int64>(row.at("category_id").as<long long>()));
-  q["category_name"] = category_name.as<std::string>();
+  q["category_id"] = categoryIdToJson(category_id);
+  q["category_name"] = category_name.isNull()
+                           ? Json::Value(Json::nullValue)
+                           : Json::Value(category_name.as<std::string>());
   q["special_category"] = row.at("special_category").as<std::string>();
   q["min_age"] =
       Json::Value(static_cast<Json::Int64>(row.at("min_age").as<long long>()));
@@ -1597,8 +1696,9 @@ Json::Value submissionToJson(const drogon::orm::Row& row) {
   Json::Value q;
   q["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
   q["text"] = row["text"].as<std::string>();
-  q["category_id"] =
-      Json::Value(static_cast<Json::Int64>(row["category_id"].as<long long>()));
+  // A submission the user filed without a category reports null here; an
+  // administrator has to assign one before the question may be approved.
+  q["category_id"] = categoryIdToJson(row["category_id"]);
   q["language"] = row["language"].as<std::string>();
   q["min_age"] =
       Json::Value(static_cast<Json::Int64>(row["min_age"].as<long long>()));
@@ -1714,12 +1814,20 @@ void QuestionController::approveQuestion(
   // Reviewed-by is taken from the verified admin JWT; clients cannot forge it.
   std::string admin_id = req->attributes()->get<std::string>("user_id");
 
-  // Optional body: {"min_age"?: integer, "special_category"?: string}. The
-  // submitting user no longer chooses a minimum age; the approving admin sets
-  // it here (default 0, i.e. no age restriction) along with the GDPR special
-  // category flag (default 'none').
+  // Optional body: {"min_age"?: integer, "special_category"?: string,
+  // "category_id"?: integer, "answer_options"?: string[]}. The submitting user
+  // no longer chooses a minimum age; the approving admin sets it here (default
+  // 0, i.e. no age restriction) along with the GDPR special category flag
+  // (default 'none').
+  //
+  // "category_id" and "answer_options" complete what the submitter was allowed
+  // to leave out: an approved question always needs a category and at least one
+  // answer option. Answer options are only accepted for a question that has
+  // none yet — the options a user submitted are never replaced.
   int64_t min_age = 0;
   std::string special_category = "none";
+  std::optional<int64_t> body_category_id;
+  std::vector<std::string> answer_options;
   if (auto jsonPtr = req->getJsonObject()) {
     if (jsonPtr->isMember("min_age")) {
       if (!(*jsonPtr)["min_age"].isIntegral()) {
@@ -1764,44 +1872,265 @@ void QuestionController::approveQuestion(
       }
       special_category = label;
     }
+    if (jsonPtr->isMember("category_id") &&
+        !(*jsonPtr)["category_id"].isNull()) {
+      if (!(*jsonPtr)["category_id"].isIntegral()) {
+        Json::Value err;
+        err["error"] = "Field 'category_id' must be an integer";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      body_category_id = (*jsonPtr)["category_id"].asInt64();
+    }
+    if (jsonPtr->isMember("answer_options") &&
+        !(*jsonPtr)["answer_options"].isNull()) {
+      auto normalized = normalizeAnswerOptions((*jsonPtr)["answer_options"]);
+      if (!normalized.ok) {
+        Json::Value err;
+        err["error"] = normalized.error;
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+      answer_options = std::move(normalized.texts);
+    }
   }
 
   auto dbClient = app().getDbClient();
   auto callbackPtr =
       std::make_shared<std::function<void(const HttpResponsePtr&)>>(
           std::move(callback));
+  const int64_t qid = static_cast<int64_t>(questionId);
 
-  *dbClient << "UPDATE questions "
-               "SET submission_status = 'approved', "
-               "    reviewed_by = $2::uuid, "
-               "    reviewed_at = NOW(), "
-               "    min_age = $3::bigint, "
-               "    special_category = $4::special_category_type "
-               "WHERE id = $1::bigint "
-               "RETURNING id, text, category_id, language, min_age, "
-               "created_at, special_category, submission_status, "
-               "submitted_by, reviewed_by"
-            << static_cast<int64_t>(questionId) << admin_id << min_age
-            << special_category >>
-      [callbackPtr](const Result& r) {
-        if (r.empty()) {
+  // Answers the request with a JSON {"error": message} body and the given
+  // status, which is what every rejection below reports.
+  auto respondWithError = [callbackPtr](const std::string& message,
+                                        drogon::HttpStatusCode status) {
+    Json::Value err;
+    err["error"] = message;
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(status);
+    (*callbackPtr)(resp);
+  };
+  auto respondWithDatabaseError = [callbackPtr](const std::string& context,
+                                                const DrogonDbException& e) {
+    LOG_ERROR << fmt::format("QuestionController::approveQuestion {}: {}",
+                             context, e.base().what());
+    Json::Value err;
+    err["error"] = "database error";
+    auto resp = HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(k500InternalServerError);
+    (*callbackPtr)(resp);
+  };
+
+  // Body of a successful approval: the updated submission plus the answer
+  // options the question carries, so a client can refresh from this one call.
+  auto approvalBody = [](const drogon::orm::Row& row, int64_t question_id,
+                         const Result& options) {
+    Json::Value body = submissionToJson(row);
+    body["answer_options"] = answerOptionsToJson(options, question_id);
+    return body;
+  };
+
+  // Load the submission. Everything that follows completes what the submitter
+  // may have left out, so the status, the stored category and the stored answer
+  // options are all resolved before anything is written.
+  //
+  // Validation order (DESIGN-question-submission.md): the submission has to be
+  // pending, the question needs a category, and it needs answer options.
+  *dbClient << "SELECT id, category_id, language, submission_status "
+               "FROM questions WHERE id = $1::bigint"
+            << qid >>
+      [=](const Result& submission) {
+        // 1. Only a pending submission may be reviewed.
+        if (submission.empty()) {
           auto resp = HttpResponse::newHttpResponse();
           resp->setStatusCode(k404NotFound);
           (*callbackPtr)(resp);
           return;
         }
-        (*callbackPtr)(
-            HttpResponse::newHttpJsonResponse(submissionToJson(r[0])));
-      } >>
-      [callbackPtr](const DrogonDbException& e) {
-        LOG_ERROR << fmt::format("approveQuestion DB error: {}",
-                                 e.base().what());
-        Json::Value err;
-        err["error"] = "database error";
-        auto resp = HttpResponse::newHttpJsonResponse(err);
-        resp->setStatusCode(k500InternalServerError);
-        (*callbackPtr)(resp);
-      };
+        if (submission[0]["submission_status"].as<std::string>() != "pending") {
+          respondWithError("the question has already been reviewed",
+                           k409Conflict);
+          return;
+        }
+        const std::string language =
+            submission[0]["language"].as<std::string>();
+
+        // 2. The category the question goes public with: the one chosen during
+        //    this approval, or the one the submitter filed it under.
+        const auto& stored_category = submission[0]["category_id"];
+        std::optional<int64_t> category = body_category_id;
+        if (!category && !stored_category.isNull()) {
+          category = stored_category.as<long long>();
+        }
+        if (!category) {
+          respondWithError("a category is required to approve a question",
+                           k400BadRequest);
+          return;
+        }
+
+        // 3. The category has to exist in the language the question is asked
+        //    in; the public search joins the category name on the language, so
+        //    a category from another language would make the approved question
+        //    unlistable. Asking for a different category fixes it, so the
+        //    message says what to change.
+        *dbClient << "SELECT id FROM categories "
+                     "WHERE id = $1::bigint AND language = $2::char(2)"
+                  << *category << language >>
+            [=](const Result& found) {
+              if (found.empty()) {
+                if (body_category_id) {
+                  respondWithError(
+                      fmt::format(
+                          "Field 'category_id' does not reference an existing "
+                          "category of language '{}'",
+                          language),
+                      k400BadRequest);
+                  return;
+                }
+                respondWithError(
+                    fmt::format(
+                        "the category of this submission is not available in "
+                        "language '{}'; approve it with a valid 'category_id'",
+                        language),
+                    k400BadRequest);
+                return;
+              }
+
+              // 4. / 5. The answer options of the question. Ones the submitter
+              //    provided are kept as they are; missing ones are completed
+              //    here, so the question can be voted on once it is public.
+              *dbClient << "SELECT id, text FROM answer_options "
+                           "WHERE question_id = $1::bigint ORDER BY id"
+                        << qid >>
+                  [=](const Result& existing) {
+                    if (!existing.empty() && !answer_options.empty()) {
+                      respondWithError(
+                          "the question already has answer options",
+                          k409Conflict);
+                      return;
+                    }
+                    if (existing.empty() && answer_options.empty()) {
+                      respondWithError(
+                          "at least one answer option is required to approve "
+                          "a question",
+                          k400BadRequest);
+                      return;
+                    }
+
+                    // 6. Category, answer options and status change are written
+                    //    in one transaction, so an approval either produces a
+                    //    complete public question or leaves the submission
+                    //    untouched.
+                    dbClient->newTransactionAsync(
+                        [=](const std::shared_ptr<drogon::orm::Transaction>&
+                                trans) {
+                          if (!trans) {
+                            Json::Value err;
+                            err["error"] = "database timeout";
+                            auto resp = HttpResponse::newHttpJsonResponse(err);
+                            resp->setStatusCode(k500InternalServerError);
+                            (*callbackPtr)(resp);
+                            return;
+                          }
+
+                          // Responds only once the transaction has committed,
+                          // so a client never sees a success that was rolled
+                          // back afterwards.
+                          auto respondAfterCommit =
+                              [callbackPtr, trans](const Json::Value& body) {
+                                auto resp =
+                                    HttpResponse::newHttpJsonResponse(body);
+                                trans->setCommitCallback(
+                                    [=](bool) { (*callbackPtr)(resp); });
+                              };
+
+                          *trans << "UPDATE questions "
+                                    "SET submission_status = 'approved', "
+                                    "    reviewed_by = $2::uuid, "
+                                    "    reviewed_at = NOW(), "
+                                    "    min_age = $3::bigint, "
+                                    "    special_category = "
+                                    "$4::special_category_type, "
+                                    "    category_id = $5::bigint "
+                                    "WHERE id = $1::bigint AND "
+                                    "submission_status = 'pending' "
+                                    "RETURNING id, text, category_id, "
+                                    "language, min_age, created_at, "
+                                    "special_category, submission_status, "
+                                    "submitted_by, reviewed_by"
+                                 << qid << admin_id << min_age
+                                 << special_category << *category >>
+                              [=](const Result& updated) {
+                                // The pending guard above makes a concurrent
+                                // review of the same submission a no-op.
+                                if (updated.empty()) {
+                                  trans->rollback();
+                                  respondWithError(
+                                      "the question has already been reviewed",
+                                      k409Conflict);
+                                  return;
+                                }
+                                if (answer_options.empty()) {
+                                  // Nothing to insert: report the options the
+                                  // question carries.
+                                  respondAfterCommit(
+                                      approvalBody(updated[0], qid, existing));
+                                  return;
+                                }
+
+                                // Build a single multi-row INSERT for the
+                                // options supplied with the approval. Every
+                                // text is bound as its own parameter (no
+                                // string interpolation) so the statement is
+                                // injection-safe and the order is preserved
+                                // ($1 is the question id).
+                                std::string optSql =
+                                    "INSERT INTO answer_options "
+                                    "(question_id, text) VALUES ";
+                                for (size_t i = 0; i < answer_options.size();
+                                     ++i) {
+                                  if (i) optSql += ", ";
+                                  optSql += fmt::format(
+                                      "($1::bigint, ${}::text)", i + 2);
+                                }
+                                optSql += " RETURNING id, text";
+
+                                auto binder = *trans << optSql;
+                                binder << qid;
+                                for (const auto& t : answer_options) {
+                                  binder << t;
+                                }
+                                binder >> [=](const Result& inserted) {
+                                  respondAfterCommit(
+                                      approvalBody(updated[0], qid, inserted));
+                                } >> [=](const DrogonDbException& e) {
+                                  trans->rollback();
+                                  respondWithDatabaseError(
+                                      "answer_options insert failed", e);
+                                };
+                              }  // end UPDATE success lambda
+                              >> [=](const DrogonDbException& e) {
+                                  trans->rollback();
+                                  respondWithDatabaseError("update failed", e);
+                                };  // end UPDATE error lambda
+                        });  // end newTransactionAsync
+                  }  // end answer options lookup
+                  >> [=](const DrogonDbException& e) {
+                      respondWithDatabaseError("answer options lookup", e);
+                    };
+            }  // end category lookup success lambda
+            >> [=](const DrogonDbException& e) {
+                respondWithDatabaseError("category lookup", e);
+              };
+      }  // end submission lookup success lambda
+      >> [=](const DrogonDbException& e) {
+          respondWithDatabaseError("submission lookup", e);
+        };
 }
 
 void QuestionController::rejectQuestion(
@@ -2159,14 +2488,23 @@ void QuestionController::submitQuestion(
     callback(resp);
     return;
   }
-  if (!(*jsonPtr).isMember("category_id") ||
-      !(*jsonPtr)["category_id"].isIntegral()) {
-    Json::Value err;
-    err["error"] = "Field 'category_id' (integer) is required";
-    auto resp = HttpResponse::newHttpJsonResponse(err);
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
+  // --- Category (optional) --------------------------------------------------
+  // Only the question text is mandatory. A submission may be filed without a
+  // category; an administrator assigns one while approving it. When a category
+  // is given it has to exist and be defined in the question's language, so the
+  // approved question can be listed with a category name.
+  std::optional<int64_t> categoryId;
+  if ((*jsonPtr).isMember("category_id") &&
+      !(*jsonPtr)["category_id"].isNull()) {
+    if (!(*jsonPtr)["category_id"].isIntegral()) {
+      Json::Value err;
+      err["error"] = "Field 'category_id' must be an integer";
+      auto resp = HttpResponse::newHttpJsonResponse(err);
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+    categoryId = (*jsonPtr)["category_id"].asInt64();
   }
   if (!(*jsonPtr).isMember("language") || !(*jsonPtr)["language"].isString() ||
       (*jsonPtr)["language"].asString().size() != 2) {
@@ -2191,70 +2529,25 @@ void QuestionController::submitQuestion(
     return;
   }
 
-  // --- Answer options (required, non-empty) ---------------------------------
+  // --- Answer options (optional) --------------------------------------------
   // Each option is either a plain string or an object carrying a non-empty
-  // "text". We normalize them to a list of texts and persist them in the
-  // answer_options table pointing at the newly created question, so a question
-  // is always submitted together with the options it can be voted on.
-  if (!(*jsonPtr).isMember("answer_options") ||
-      !(*jsonPtr)["answer_options"].isArray()) {
-    Json::Value err;
-    err["error"] =
-        "Field 'answer_options' (array of strings or objects) is required";
-    auto resp = HttpResponse::newHttpJsonResponse(err);
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-  const auto& answerOptions = (*jsonPtr)["answer_options"];
-  // A question without any answer option cannot be voted on, so require at
-  // least one. The upper bound guards against unreasonably large payloads.
-  constexpr size_t kMaxAnswerOptions = 50;
-  if (answerOptions.empty()) {
-    Json::Value err;
-    err["error"] = "Field 'answer_options' must contain at least one entry";
-    auto resp = HttpResponse::newHttpJsonResponse(err);
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-  if (answerOptions.size() > kMaxAnswerOptions) {
-    Json::Value err;
-    err["error"] = "Field 'answer_options' must not contain more than " +
-                   std::to_string(kMaxAnswerOptions) + " entries";
-    auto resp = HttpResponse::newHttpJsonResponse(err);
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
+  // "text". They are normalized to a list of texts and persisted in the
+  // answer_options table pointing at the newly created question. The list may
+  // be empty: a question may be filed without options, which an administrator
+  // completes during approval.
   std::vector<std::string> optionTexts;
-  optionTexts.reserve(answerOptions.size());
-  for (const auto& opt : answerOptions) {
-    std::string text;
-    if (opt.isString()) {
-      text = opt.asString();
-    } else if (opt.isObject() && opt.isMember("text") &&
-               opt["text"].isString()) {
-      text = opt["text"].asString();
-    } else {
+  if ((*jsonPtr).isMember("answer_options") &&
+      !(*jsonPtr)["answer_options"].isNull()) {
+    auto answerOptions = normalizeAnswerOptions((*jsonPtr)["answer_options"]);
+    if (!answerOptions.ok) {
       Json::Value err;
-      err["error"] =
-          "Each answer option must be a string or an object with a "
-          "non-empty 'text' field";
+      err["error"] = answerOptions.error;
       auto resp = HttpResponse::newHttpJsonResponse(err);
       resp->setStatusCode(k400BadRequest);
       callback(resp);
       return;
     }
-    if (text.empty()) {
-      Json::Value err;
-      err["error"] = "answer option text must not be empty";
-      auto resp = HttpResponse::newHttpJsonResponse(err);
-      resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
-    }
-    optionTexts.push_back(std::move(text));
+    optionTexts = std::move(answerOptions.texts);
   }
 
   // The submitter is taken from the verified JWT, never from the request body,
@@ -2270,7 +2563,6 @@ void QuestionController::submitQuestion(
   }
 
   const std::string text = (*jsonPtr)["text"].asString();
-  const int64_t category_id = (*jsonPtr)["category_id"].as<int64_t>();
   const std::string language = (*jsonPtr)["language"].asString();
 
   auto dbClient = app().getDbClient();
@@ -2281,83 +2573,125 @@ void QuestionController::submitQuestion(
   // Insert the question AND its answer options inside a single transaction so
   // the submission is atomic: if any insert fails the whole submission is
   // rolled back and no partial record is left behind.
-  dbClient->newTransactionAsync([=](const std::shared_ptr<
-                                    drogon::orm::Transaction>& trans) {
-    if (!trans) {
-      Json::Value err;
-      err["error"] = "database timeout";
-      auto resp = HttpResponse::newHttpJsonResponse(err);
-      resp->setStatusCode(k500InternalServerError);
-      (*callbackPtr)(resp);
-      return;
-    }
-
-    *trans << "INSERT INTO questions (text, category_id, language, "
-              "submission_status, submitted_by) "
-              "VALUES ($1::text, $2::bigint, $3::char(2), 'pending', "
-              "$4::uuid) "
-              "RETURNING id, text, category_id, language, min_age, "
-              "created_at, special_category, submission_status, submitted_by"
-           << text << category_id << language << user_id >>
-        [=](const Result& r) {
-          const int64_t new_qid = r[0]["id"].as<long long>();
-
-          // Build a single multi-row INSERT for all answer options. Every
-          // text is bound as its own parameter (no string interpolation) so
-          // the statement is injection-safe and the option order is
-          // preserved (placeholder $1 is the question id).
-          std::string optSql =
-              "INSERT INTO answer_options (question_id, text) VALUES ";
-          for (size_t i = 0; i < optionTexts.size(); ++i) {
-            if (i) optSql += ", ";
-            optSql += fmt::format("($1::bigint, ${}::text)", i + 2);
+  auto insertSubmission = [=](const std::optional<int64_t>& category) {
+    dbClient->newTransactionAsync(
+        [=](const std::shared_ptr<drogon::orm::Transaction>& trans) {
+          if (!trans) {
+            Json::Value err;
+            err["error"] = "database timeout";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k500InternalServerError);
+            (*callbackPtr)(resp);
+            return;
           }
-          optSql += " RETURNING id, text";
 
-          auto binder = *trans << optSql;
-          binder << new_qid;
-          for (const auto& t : optionTexts) binder << t;
-          binder >> [=](const Result& opts) {
-            Json::Value answers(Json::arrayValue);
-            for (const auto& row : opts) {
-              Json::Value o;
-              o["id"] = Json::Value(
-                  static_cast<Json::Int64>(row["id"].as<long long>()));
-              o["question_id"] = Json::Value(static_cast<Json::Int64>(new_qid));
-              o["text"] = row["text"].as<std::string>();
-              answers.append(o);
-            }
+          *trans << "INSERT INTO questions (text, category_id, language, "
+                    "submission_status, submitted_by) "
+                    "VALUES ($1::text, $2::bigint, $3::char(2), 'pending', "
+                    "$4::uuid) "
+                    "RETURNING id, text, category_id, language, min_age, "
+                    "created_at, special_category, submission_status, "
+                    "submitted_by"
+                 << text << category << language << user_id >>
+              [=](const Result& r) {
+                const int64_t new_qid = r[0]["id"].as<long long>();
 
-            Json::Value out = questionToJson(r[0]);
-            out["answer_options"] = answers;
-            auto resp = HttpResponse::newHttpJsonResponse(out);
-            resp->setStatusCode(k201Created);
-            // The answer_options INSERT is the last statement of the
-            // transaction; commit it and respond once the commit lands.
-            trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
-          } >> [=](const DrogonDbException& e) {
-            trans->rollback();
-            LOG_ERROR << fmt::format(
-                "QuestionController::submitQuestion answer_options insert "
-                "failed: {}",
-                e.base().what());
-            Json::Value err;
-            err["error"] = "database error";
-            auto resp = HttpResponse::newHttpJsonResponse(err);
-            resp->setStatusCode(k500InternalServerError);
-            (*callbackPtr)(resp);
-          };
-        }  // end question insert success lambda
-        >> [=](const DrogonDbException& e) {
-            trans->rollback();
-            LOG_ERROR << fmt::format(
-                "QuestionController::submitQuestion question insert failed: {}",
-                e.base().what());
-            Json::Value err;
-            err["error"] = "database error";
-            auto resp = HttpResponse::newHttpJsonResponse(err);
-            resp->setStatusCode(k500InternalServerError);
-            (*callbackPtr)(resp);
-          };  // end question insert error lambda
-  });  // end newTransactionAsync
+                // A submission without answer options is complete on its own:
+                // commit the question insert and report an empty list.
+                if (optionTexts.empty()) {
+                  Json::Value out = questionToJson(r[0]);
+                  out["answer_options"] = Json::Value(Json::arrayValue);
+                  auto resp = HttpResponse::newHttpJsonResponse(out);
+                  resp->setStatusCode(k201Created);
+                  trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
+                  return;
+                }
+
+                // Build a single multi-row INSERT for all answer options.
+                // Every text is bound as its own parameter (no string
+                // interpolation) so the statement is injection-safe and the
+                // option order is preserved (placeholder $1 is the question
+                // id).
+                std::string optSql =
+                    "INSERT INTO answer_options (question_id, text) VALUES ";
+                for (size_t i = 0; i < optionTexts.size(); ++i) {
+                  if (i) optSql += ", ";
+                  optSql += fmt::format("($1::bigint, ${}::text)", i + 2);
+                }
+                optSql += " RETURNING id, text";
+
+                auto binder = *trans << optSql;
+                binder << new_qid;
+                for (const auto& t : optionTexts) binder << t;
+                binder >> [=](const Result& opts) {
+                  Json::Value out = questionToJson(r[0]);
+                  out["answer_options"] = answerOptionsToJson(opts, new_qid);
+                  auto resp = HttpResponse::newHttpJsonResponse(out);
+                  resp->setStatusCode(k201Created);
+                  // The answer_options INSERT is the last statement of the
+                  // transaction; commit it and respond once the commit
+                  // lands.
+                  trans->setCommitCallback([=](bool) { (*callbackPtr)(resp); });
+                } >> [=](const DrogonDbException& e) {
+                  trans->rollback();
+                  LOG_ERROR << fmt::format(
+                      "QuestionController::submitQuestion answer_options "
+                      "insert failed: {}",
+                      e.base().what());
+                  Json::Value err;
+                  err["error"] = "database error";
+                  auto resp = HttpResponse::newHttpJsonResponse(err);
+                  resp->setStatusCode(k500InternalServerError);
+                  (*callbackPtr)(resp);
+                };
+              }  // end question insert success lambda
+              >> [=](const DrogonDbException& e) {
+                  trans->rollback();
+                  LOG_ERROR << fmt::format(
+                      "QuestionController::submitQuestion question insert "
+                      "failed: {}",
+                      e.base().what());
+                  Json::Value err;
+                  err["error"] = "database error";
+                  auto resp = HttpResponse::newHttpJsonResponse(err);
+                  resp->setStatusCode(k500InternalServerError);
+                  (*callbackPtr)(resp);
+                };  // end question insert error lambda
+        });  // end newTransactionAsync
+  };
+
+  if (!categoryId) {
+    insertSubmission(std::nullopt);
+    return;
+  }
+
+  // Resolve the optional category before inserting anything: it has to exist
+  // and it has to be defined in the language the question is asked in.
+  *dbClient << "SELECT id FROM categories "
+               "WHERE id = $1::bigint AND language = $2::char(2)"
+            << *categoryId << language >>
+      [callbackPtr, insertSubmission, categoryId, language](const Result& r) {
+        if (r.empty()) {
+          Json::Value err;
+          err["error"] = fmt::format(
+              "Field 'category_id' does not reference an existing category of "
+              "language '{}'",
+              language);
+          auto resp = HttpResponse::newHttpJsonResponse(err);
+          resp->setStatusCode(k400BadRequest);
+          (*callbackPtr)(resp);
+          return;
+        }
+        insertSubmission(categoryId);
+      } >>
+      [callbackPtr](const DrogonDbException& e) {
+        LOG_ERROR << fmt::format(
+            "QuestionController::submitQuestion category lookup failed: {}",
+            e.base().what());
+        Json::Value err;
+        err["error"] = "database error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k500InternalServerError);
+        (*callbackPtr)(resp);
+      };
 }
