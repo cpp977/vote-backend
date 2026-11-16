@@ -56,7 +56,7 @@ Steps:
 
 This playbook is the old `deploy-local` deployment, kept for integration tests. It deploys
 an ephemeral setup: the PostgreSQL data directory is **not** bind-mounted, so the database
-is recreated from the SQL init scripts on every (re)deploy:
+is recreated from `migrations/` (plus the `seed/` fixtures) on every (re)deploy:
 1. Builds the `Containerfile` image
 2. Installs quadlets (network, postgres, app) into the user systemd instance
 3. Reloads the user systemd daemon
@@ -96,10 +96,10 @@ CXX=clang++ ctest --preset test-native-debug -R integration   # integration only
 
 `VOTE_BACKEND_NATIVE=1` makes the fixture build the environment itself
 (`NativeStack` in `tests/integration/integration_helpers.hpp`): a throwaway
-PostgreSQL cluster via `initdb` in a `mktemp` directory, a freshly seeded `vote`
-database from `sql/001`...`sql/005`, and the backend binary started against it
-with `fork`/`exec`. Everything is torn down in the fixture destructor. No
-wrapper script and no manual steps.
+PostgreSQL cluster via `initdb` in a `mktemp` directory, a `vote` database built
+from `migrations/` and seeded from `seed/`, and the backend binary started
+against it with `fork`/`exec`. Everything is torn down in the fixture
+destructor. No wrapper script and no manual steps.
 
 Prerequisites and gotchas:
 
@@ -140,6 +140,120 @@ read one at runtime.
 - **Restart** `systemctl --user restart vote-backend@"$(cat /path/to/version.txt)".service`
 - **Stop** `systemctl --user stop vote-backend@"$(cat /path/to/version.txt)".service`
 
+## Database migrations
+
+The schema is owned by **golang-migrate**. `migrations/` is the only definition
+of it; nothing else creates tables. The PostgreSQL container deliberately has
+nothing mounted into `/docker-entrypoint-initdb.d`, because init scripts only
+run while a cluster is being created and therefore can never upgrade an existing
+database.
+
+```
+migrations/
+  000001_init.up.sql        / .down.sql    core schema (questions, answers, votes)
+  000002_auth.up.sql        / .down.sql    users, tokens, countries reference data
+  000005_regions.up.sql     / .down.sql    ISO 3166-2 reference data
+seed/
+  seed_data.sql                            demo categories/questions
+  test_data.sql                            users and votes the tests log in with
+```
+
+- **migrations/** holds schema *and* the reference data the application cannot
+  work without (`countries`, `regions`). It runs once per database, in version
+  order, and each file plus its version bump is one transaction.
+- **seed/** holds fixture data. It is not part of the schema, is applied by the
+  integration-test playbook and the container-free test path only, and must
+  never reach a persistent deployment (the seeded users have well-known
+  passwords).
+
+### Rules
+
+1. A schema change is always a **new** migration. Never edit a migration that
+   has been applied anywhere - fix it forward.
+2. Write the `.down.sql` too, but treat deployed databases as forward-only: the
+   rollback of a live deployment is a `pg_dump` restore, not `migrate down`.
+3. Make migrations **expand/contract** so the currently running binary keeps
+   working: add the nullable column first, backfill, drop the old one in a later
+   migration.
+4. New migrations are numbered sequentially:
+   `migrate create -seq -ext sql -dir migrations add_<thing>`. Zero-padded
+   prefixes keep a plain sort equal to the version order.
+
+### Applying
+
+The deploy playbooks do it for you: `roles/db-migrate` copies `migrations/` to
+`~/.local/share/vote-backend/migrations`, runs the pinned `migrate/migrate`
+container on the `vote` network as the `vote_migration` role, and restarts
+`vote-backend` only when the version actually moved. To run just that step:
+
+```sh
+ansible-playbook ansible/playbooks/deploy-local.yml --tags migrate
+```
+
+Handy equivalents against the running container (note `-path` and that
+golang-migrate's subcommand comes last):
+
+```sh
+# current version
+podman run --rm --network vote \
+  -v "$HOME/.local/share/vote-backend/migrations:/migrations:ro,Z" \
+  docker.io/migrate/migrate:v4.19.0 \
+  -path /migrations -database 'postgres://vote_migration:<pw>@drogon-postgres:5432/vote?sslmode=disable' version
+
+# create a new migration
+podman run --rm -v "$PWD:/src" docker.io/migrate/migrate:v4.19.0 \
+  create -seq -ext sql -dir /src/migrations add_<thing>
+```
+
+`vote_backend_db_migration_password` is vaulted; use `--ask-vault-pass` and take
+the password from the vault rather than pasting it into shell history.
+
+### Databases that predate the framework
+
+A cluster created from the old `sql/` init scripts has the schema but no
+`schema_migrations` table. The db-migrate role detects that (`migrate version`
+fails) and **baselines** it with `migrate force` at
+`vote_backend_migrate_baseline_version` (5 - the last migration those scripts
+contained), then applies only the newer migrations. `force` writes the version
+without executing SQL, so nothing is replayed into a populated database. Verify
+the assumption before trusting it:
+
+```sh
+podman exec drogon-postgres psql -U postgres -d vote -tAc \
+  "SELECT to_regclass('public.users') IS NOT NULL,
+          EXISTS (SELECT 1 FROM regions WHERE code = 'DE-BE')"
+```
+
+Those init scripts ran as the cluster's bootstrap superuser, so every table on
+such a database belongs to `postgres` -- and only the owner may `ALTER TABLE`.
+The same adoption step therefore hands the objects in `public` (tables, and with
+them their indexes and serial sequences, plus the enum types) over to the
+migration role before the migrations run. It is idempotent: a database built by
+the migration role has nothing to hand over.
+
+A migration that fails leaves the database **dirty** (`schema_migrations.dirty =
+t` at the version it attempted) and every later run is refused with "Dirty
+database version N". Recovery is to fix the cause, point the tool back at the
+last version that really is in the database, and re-run:
+
+```sh
+podman run --rm --network vote \
+  -v "$HOME/.local/share/vote-backend/migrations:/migrations:ro,Z" \
+  docker.io/migrate/migrate:v4.19.0 \
+  -path /migrations \
+  -database 'postgres://vote_migration:<pw>@drogon-postgres:5432/vote?sslmode=disable' \
+  force 5
+```
+
+A fresh persistent deployment ends up with an empty database and no users: the
+fixtures are not loaded there. Create the first account through
+`POST /register`, then promote it:
+
+```sh
+podman exec drogon-postgres psql -U postgres -d vote \
+  -c "UPDATE users SET is_admin = TRUE WHERE username = '<name>'"
+```
+
 ## Database
 
 The postgresql database runs in a container named `drogon-postgres`
@@ -147,8 +261,8 @@ The postgresql database runs in a container named `drogon-postgres`
 Useful commands:
 
 - **Check if running**: `podman ps --filter name=drogon-postgres --format "{{.Names}} {{.Status}}"`
-- **Start postgresql container**: `podman run --name drogon-postgres --rm -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=vote -v /home/peschke/code/private/Vote-Backend/sql:/docker-entrypoint-initdb.d -p 5432:5432 -d postgres:18
-a69355ee5ca7b8cf7d591cca68faa57a6ac7d2deaee1caf83acf4ff0c5b`
+- **Start postgresql container**: `podman run --name drogon-postgres --rm -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=vote -p 5432:5432 -d postgres:18`
+  (the schema is applied afterwards by `roles/db-migrate`, not by this command)
 - **Stop postgresql container**: `podman stop drogon-postgres`
 - **Execute postgresql command**: `podman exec drogon-postgres psql -U postgres -d vote -c "<command>"`
 - **Example command** (list all tables): `podman exec drogon-postgres psql -U postgres -d vote -c "SELECT * FROM information_schema.tables WHERE table_schema = 'public';"`

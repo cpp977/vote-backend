@@ -18,6 +18,10 @@ vote_backend_image_tag: "{{ lookup('file', vote_backend_project_root ~ '/version
 vote_backend_postgresql_version: 18
 vote_backend_db_container_name: drogon-postgres
 vote_backend_db_name: vote
+# Name of the podman network the containers share (NetworkName= in
+# quadlets/vote.network). The migration tool container joins it to reach
+# vote_backend_db_container_name:5432.
+vote_backend_network_name: vote
 # Cluster-bootstrap superuser ("postgres"), created by the postgres image
 # entrypoint on first initialization only. The application never connects
 # as this role; its password is intentionally different from the app's.
@@ -28,6 +32,23 @@ vote_backend_db_maintenance_user: vote_maintenance
 vote_backend_db_maintenance_password: "{{ vault_db_maintenance_password }}"
 vote_backend_db_migration_user: vote_migration
 vote_backend_db_migration_password: "{{ vault_db_migration_password }}"
+
+# Schema migrations (roles/db-migrate, golang-migrate).
+# The tool runs as a throwaway container; bump the tag (or pin a digest) when
+# upgrading. `-path` is implied by the role, which mounts migrations/ at
+# /migrations inside the container.
+vote_backend_migrate_image: docker.io/migrate/migrate:v4.19.0
+# Version a database is considered to be at when it has a schema but no
+# schema_migrations table, i.e. when it was created by the pre-golang-migrate
+# /docker-entrypoint-initdb.d scripts. The last migration those scripts
+# contained is 000005_regions, so a legacy database is adopted at version 5 and
+# only newer migrations are applied to it. Once every database has been
+# baselined this is never used again.
+vote_backend_migrate_baseline_version: 5
+# Load the demo/fixture data from seed/ into a freshly created database. Off by
+# default so a persistent deployment never gets the example users and their
+# well-known passwords; the integration-test playbook turns it on.
+vote_backend_seed_enabled: false
 
 # db maintenance
 vote_backend_rejected_questions_retention_days: 30
@@ -50,7 +71,7 @@ vote_backend_uid: "{{ ansible_facts['user_uid'] | default(1000) }}"
 # When true the PostgreSQL data directory is bind-mounted from
 # vote_backend_postgres_data_dir so the database survives container restarts.
 # The deploy-local-test.yml playbook overrides this to false (ephemeral DB,
-# recreated from the SQL init scripts on every (re)deploy).
+# recreated from migrations/ on every (re)deploy).
 vote_backend_postgres_persistent: false
 # The "/18" suffix is required: PostgreSQL >= 18 demands the major version in
 # the data directory path (see docker-library/postgres#1259).

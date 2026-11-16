@@ -1,11 +1,14 @@
 ---
 # postgres role
-# Manages the PostgreSQL database container for vote-backend.
+# Manages the PostgreSQL database container for the vote-backend.
 # - Creates the podman secret for the bootstrap superuser password
 # - Renders the drogon-postgres quadlet (persistent or ephemeral based on
 #   vote_backend_postgres_persistent)
 # - Stages pg_hba.conf for deployment into the running container
-# - Copies SQL init scripts and renders 006_users.sql (ephemeral only)
+#
+# The cluster is deliberately created empty: the schema comes from migrations/
+# and is applied by the db-migrate role (golang-migrate), not by the image's
+# /docker-entrypoint-initdb.d mechanism. See AGENTS.md, "Database migrations".
 #
 # Service restart and pg_hba.conf deployment into the running container are
 # handled by the systemd role (which runs after this role), because podman cp
@@ -39,22 +42,6 @@
 # directory automatically when the container starts, so we rely on that instead
 # of managing the directory from the playbook (use `podman unshare` to fix an
 # already-chowned directory manually).
-
-- name: Copy SQL init scripts to a portable location
-  ansible.builtin.copy:
-    src: "{{ vote_backend_project_root }}/sql/"
-    dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/sql/"
-    mode: "0644"
-    directory_mode: "0755"
-  when: vote_backend_build_on_target | default(true)
-
-# - name: Render 006_users.sql which creates postgres users
-#   ansible.builtin.template:
-#     src: 006_users.sql.j2
-#     dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/sql/006_users.sql"
-#     mode: "0644"
-#   no_log: true
-#   when: not (vote_backend_postgres_persistent | default(false))
 
 - name: Stage pg_hba.conf for deployment into the container
   ansible.builtin.copy:

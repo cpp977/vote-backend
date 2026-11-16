@@ -125,6 +125,11 @@
   tags: [db-roles]
 
 - name: Grant privileges to maintenance role
+  # Only the role-level privileges are granted here. The maintenance job needs
+  # SELECT/DELETE on questions, which cannot be granted before the schema
+  # exists -- roles/db-migrate applies that one after the migrations. Keeping it
+  # out of this role is what makes a fresh deployment work: this role runs
+  # before anything has created the questions table.
   ansible.builtin.command: >
     podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
     {{ vote_backend_db_container_name }}
@@ -132,7 +137,6 @@
   loop:
     - "GRANT CONNECT ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_maintenance_user }};"
     - "GRANT USAGE ON SCHEMA public TO {{ vote_backend_db_maintenance_user }};"
-    - "GRANT SELECT, DELETE ON questions TO {{ vote_backend_db_maintenance_user }};"
   no_log: true
   changed_when: true
   tags: [db-roles]
@@ -173,9 +177,50 @@
     psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
   loop:
     - "GRANT CONNECT ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_migration_user }};"
-    - "GRANT ALL ON SCHEMA public TO {{ vote_backend_db_migration_user }};"
+    # CREATE on the database is what a *trusted* extension needs: 000001_init
+    # runs CREATE EXTENSION IF NOT EXISTS pg_trgm. On a cluster where pg_trgm
+    # already exists that is a tolerated no-op, but on a fresh database it fails
+    # with "permission denied to create extension" without this grant.
+    - "GRANT CREATE ON DATABASE {{ vote_backend_db_name }} TO {{ vote_backend_db_migration_user }};"
+    - "GRANT CREATE, USAGE ON SCHEMA public TO {{ vote_backend_db_migration_user }};"
     - "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ vote_backend_db_migration_user }};"
     - "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{ vote_backend_db_migration_user }};"
   no_log: true
   changed_when: true
   tags: [db-roles]
+
+# The migration role owns every object the migrations create (it is the role
+# golang-migrate connects as). The default privileges above are set up as
+# `postgres`, so they only cover objects *postgres* creates -- without the
+# FOR ROLE clauses below, a table added by a new migration would be invisible
+# to the application role and the backend would fail on its first query.
+- name: Grant privileges on migration-created objects to the app role
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
+  loop:
+    - "ALTER DEFAULT PRIVILEGES FOR ROLE {{ vote_backend_db_migration_user }} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {{ vote_backend_db_user }};"
+    - "ALTER DEFAULT PRIVILEGES FOR ROLE {{ vote_backend_db_migration_user }} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {{ vote_backend_db_user }};"
+  no_log: true
+  changed_when: true
+  tags: [db-roles]
+
+# Existing objects are not covered by default privileges, so a database that
+# was migrated before this role learned about them is fixed up here. The
+# migration role keeps ownership; the app role only gets DML.
+- name: Grant privileges on existing objects to the app role
+  ansible.builtin.command: >
+    podman exec -e PGPASSWORD={{ vote_backend_db_postgres_password }}
+    {{ vote_backend_db_container_name }}
+    psql -U postgres -d {{ vote_backend_db_name }} -c "{{ item }}"
+  loop:
+    - "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {{ vote_backend_db_user }};"
+    - "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ vote_backend_db_user }};"
+  no_log: true
+  changed_when: true
+  tags: [db-roles]
+
+# The maintenance role's SELECT/DELETE on questions is not granted here: it
+# needs the questions table to exist, and this role runs before the schema is
+# applied. See the db-migrate role, which applies it once the migrations ran.

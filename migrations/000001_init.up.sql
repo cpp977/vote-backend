@@ -1,3 +1,13 @@
+-- 000001_init
+--
+-- Core schema: the languages and categories a question is filed under, the
+-- questions themselves (including the submission/approval workflow columns),
+-- their answer options, the votes cast on them, and the anonymous per-user
+-- answer tracking that makes a question single-answer per user.
+--
+-- Applied by golang-migrate (see AGENTS.md, "Database migrations"); it is no
+-- longer executed by the PostgreSQL image at cluster creation.
+
 CREATE TABLE languages (
     code CHAR(2) PRIMARY KEY,
     name TEXT NOT NULL
@@ -57,7 +67,7 @@ CREATE TABLE questions (
     submission_status TEXT NOT NULL DEFAULT 'approved'
         CHECK (submission_status IN ('pending', 'approved', 'rejected')),
     -- User who submitted the question (NULL for seed / admin-approved content).
-    -- The foreign key is added in 002_auth.sql because the users table is
+    -- The foreign key is added in 000002_auth because the users table is
     -- created there, which runs after this file.
     submitted_by UUID,
     -- Admin who approved / rejected the submission (NULL until reviewed).

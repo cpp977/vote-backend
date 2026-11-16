@@ -1,6 +1,10 @@
--- 004_test_data.sql
--- Integration test seed data: a single user and pre-defined answer submissions
--- so that GET /questions/{id}/stats returns deterministic results.
+-- seed/test_data.sql
+--
+-- Fixture data for the integration suite: the users the tests log in as, votes
+-- on a handful of seed questions, min_age/special_category overrides and
+-- password reset tokens. Not schema, and never applied to a persistent
+-- deployment (see AGENTS.md, "Database migrations"). Requires the questions and
+-- answer options from seed_data.sql, so it always runs second.
 
 -- ---------------------------------------------------------------------------
 -- Regular test user (password: 12345678, hashed with argon2id)
@@ -81,7 +85,7 @@ VALUES (3, 12, '{"gender": "m"}');
 
 -- ---------------------------------------------------------------------------
 -- Minimum-age overrides for the age filter of POST /questions/restSearch
---   The seed data (003_seed_data.sql) sets min_age to either 0 or 12 for
+--   The seed data (seed/seed_data.sql) sets min_age to either 0 or 12 for
 --   each question. We raise min_age on a small, well-known subset of
 --   *existing* questions (no new rows, so the pagination tests that assume
 --   exactly 100 questions stay valid) so the LessEq age filter

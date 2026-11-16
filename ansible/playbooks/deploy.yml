@@ -16,6 +16,9 @@
 #      via acme.sh (http-01 challenge, standalone on port 80, run rootful)
 #   5. Reloads the user systemd daemon
 #   6. Starts and enables the database, backend, and nginx services
+#   7. Creates the database roles and applies the migrations in migrations/ with
+#      golang-migrate, upgrading an existing database in place (see AGENTS.md,
+#      "Database migrations")
 #
 # The nginx reverse proxy terminates TLS for {{ vote_backend_acme_domain }} and
 # proxies to vote-backend. Point the public DNS name {{ vote_backend_acme_domain }}
@@ -66,3 +69,4 @@
     - role: db-maintenance
     - role: systemd
     - role: db-users
+    - role: db-migrate

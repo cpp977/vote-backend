@@ -1,10 +1,10 @@
--- 005_regions.sql
+-- 000005_regions
 --
--- Seed data for the ISO 3166-2 subdivision reference table created in
--- 002_auth.sql. Generated from the iso-codes project dataset
--- (5046 officially assigned codes); refreshing the list is handled
--- by a dedicated update mechanism (not implemented yet). Kept in a
--- separate init script so the auth schema stays readable.
+-- Reference data for the ISO 3166-2 subdivision table created in
+-- 000002_auth. Generated from the iso-codes project dataset (5046 officially
+-- assigned codes); refreshing the list is a matter of adding a new migration
+-- (not implemented yet). Kept in its own migration so the auth schema stays
+-- readable. Applied by golang-migrate (see AGENTS.md, "Database migrations").
 
 INSERT INTO regions (code, name, country_code) VALUES
     ('AD-02', 'Canillo', 'AD'),

@@ -14,6 +14,12 @@
 # include "/18".
 #
 # Generated systemd unit: drogon-postgres.service
+#
+# The database starts *empty*: the schema is applied by the db-migrate role
+# (golang-migrate) after this container is up. Nothing is mounted into
+# /docker-entrypoint-initdb.d on purpose -- init scripts only run while the
+# cluster is being created, which is exactly why the schema could not be
+# upgraded on a persistent deployment. See AGENTS.md, "Database migrations".
 
 [Container]
 ContainerName=drogon-postgres
@@ -29,7 +35,6 @@ Environment=PGDATA=/var/lib/postgresql/data/18
 # during first initialization only. Mounted read-only under /run/secrets,
 # invisible to `systemctl --user cat` and `podman inspect`.
 Secret=vote_db_postgres_password,target=postgres-password
-Volume=%h/.local/share/vote-backend/sql:/docker-entrypoint-initdb.d:Z
 {% if vote_backend_postgres_persistent %}
 Volume=%h/.local/share/vote-backend/postgres/18:/var/lib/postgresql/data/18:Z
 {% endif %}

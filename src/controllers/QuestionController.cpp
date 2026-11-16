@@ -1914,8 +1914,9 @@ void QuestionController::deleteQuestion(
 
   // Delete the question. Dependent rows in answer_options, user_answers and
   // question_user are removed automatically via ON DELETE CASCADE foreign-key
-  // rules defined in sql/001_init.sql. A single DELETE ... RETURNING statement
-  // is sufficient: if no row is returned the question did not exist.
+  // rules defined in migrations/000001_init.up.sql. A single DELETE ...
+  // RETURNING statement is sufficient: if no row is returned the question did
+  // not exist.
   *dbClient << "DELETE FROM questions WHERE id = $1::bigint "
                "RETURNING id, text, submission_status"
             << static_cast<int64_t>(questionId) >>

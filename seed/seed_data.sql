@@ -1,4 +1,12 @@
--- 003_seed_data.sql
+-- seed/seed_data.sql
+--
+-- Demo content: the categories questions are filed under, plus 100 example
+-- questions with their answer options. This is *fixture* data, not schema:
+-- it is never applied by the migration framework and never by a persistent
+-- deployment (see AGENTS.md, "Database migrations"). The integration test
+-- playbook and the container-free test path load it into their throwaway
+-- database; test_data.sql builds on top of it and therefore has to run after
+-- this file.
 
 -- Insert Categories
 -- Each category is language-tagged; the seed categories use the canonical

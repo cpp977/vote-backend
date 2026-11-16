@@ -13,6 +13,14 @@
 #      ~/.local/share/vote-backend/postgres/18 so data survives container restarts
 #   4. Reloads the user systemd daemon
 #   5. Starts and enables the database, backend, and nginx services
+#   6. Creates the database roles and applies the migrations in migrations/ with
+#      golang-migrate (an existing database is upgraded in place, never rebuilt)
+#
+# The demo/fixture data from seed/ is deliberately NOT loaded here: a
+# persistent deployment starts with an empty database and no users. Create the
+# first account through POST /register and promote it with
+#   podman exec drogon-postgres psql -U postgres -d vote \
+#     -c "UPDATE users SET is_admin = TRUE WHERE username = '<name>'"
 #
 # Use deploy-local-test.yml for an ephemeral deployment intended for integration
 # testing (the database is reset on every (re)deploy).
@@ -35,3 +43,4 @@
     - role: db-maintenance
     - role: systemd
     - role: db-users
+    - role: db-migrate

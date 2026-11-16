@@ -1,4 +1,10 @@
--- Authentication tables
+-- 000002_auth
+--
+-- Authentication tables: the reference data for nationality and region, the
+-- users themselves, refresh tokens, and single-use password reset tokens.
+-- It also wires questions.submitted_by / reviewed_by to users.
+--
+-- Applied by golang-migrate (see AGENTS.md, "Database migrations").
 
 -- ---------------------------------------------------------------------------
 -- Countries reference data (ISO 3166-1 alpha-2).
@@ -266,10 +272,10 @@ INSERT INTO countries (code, name) VALUES
 
 -- ---------------------------------------------------------------------------
 -- Regions reference data (ISO 3166-2 subdivisions).
--- Referenced by users.region below; the seed lives in 005_regions.sql (the
--- full list is ~5000 rows). Each subdivision belongs to a country, so the
--- table also records its ISO 3166-1 parent code. Created before the users
--- table so the foreign key can be declared inline.
+-- Referenced by users.region below; the rows live in 000005_regions (the full
+-- list is ~5000 entries). Each subdivision belongs to a country, so the table
+-- also records its ISO 3166-1 parent code. Created before the users table so
+-- the foreign key can be declared inline.
 -- ---------------------------------------------------------------------------
 CREATE TABLE regions (
     code         VARCHAR(6) PRIMARY KEY,
@@ -336,9 +342,9 @@ CREATE INDEX idx_password_resets_user_created
 
 -- ---------------------------------------------------------------------------
 -- Link question submissions to the users who created / reviewed them.
--- This must live in 002_auth.sql (not 001_init.sql) because the users table is
--- created above, and Docker runs the init scripts in alphabetical order
--- (001 before 002), so the referenced table exists by the time we get here.
+-- This has to live in 000002_auth (not 000001_init) because the users table is
+-- created above, and migrations run in version order, so the referenced table
+-- exists by the time this one runs.
 ALTER TABLE questions
     ADD CONSTRAINT fk_questions_submitted_by
         FOREIGN KEY (submitted_by) REFERENCES users(id) ON DELETE SET NULL,

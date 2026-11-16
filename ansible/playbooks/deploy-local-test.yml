@@ -7,13 +7,15 @@
 #
 # This playbook deploys an ephemeral setup that is convenient for integration
 # tests: the PostgreSQL data directory is NOT bind-mounted, so the database is
-# recreated from the SQL init scripts on every (re)deploy.
+# recreated on every (re)deploy -- from migrations/ via the db-migrate role,
+# plus the demo and test fixtures from seed/, which is what the suite expects.
 #
 # This playbook:
 #   1. Builds the Containerfile image
 #   2. Installs quadlets (network, postgres, app) into the user systemd instance
 #   3. Reloads the user systemd daemon
 #   4. Starts and enables the database and backend services
+#   5. Applies the migrations in migrations/ and loads seed/
 #
 # Use deploy-local.yml for a persistent, production-like deployment.
 
@@ -24,6 +26,9 @@
   vars:
     vote_backend_project_root: "{{ playbook_dir }}/../.."
     vote_backend_postgres_persistent: false
+    # The integration suite logs in as the seeded users, so this ephemeral
+    # deployment gets the fixture data. A persistent deployment must not.
+    vote_backend_seed_enabled: true
     # Always rebuild the image so integration tests exercise the *current*
     # source tree rather than a stale image left over from an earlier deploy.
     vote_backend_rebuild_image: true
@@ -36,4 +41,5 @@
     - role: db-maintenance
     - role: systemd
     - role: db-users
+    - role: db-migrate
 

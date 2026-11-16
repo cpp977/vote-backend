@@ -46,7 +46,6 @@ RUN git clone --depth 1 https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
 
 # Copy dependency manifest first (layer caching)
 COPY vcpkg.json CMakeLists.txt CMakePresets.json ./
-COPY sql/ ./sql/
 COPY src/ ./src/
 COPY include/ ./include/
 COPY ports/ ./ports/

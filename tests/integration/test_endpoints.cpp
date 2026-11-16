@@ -1937,7 +1937,7 @@ TEST_CASE("UpdateMe rejects invalid gender") {
 
 TEST_CASE("UpdateMe rejects email already in use") {
   // The seeded test user "Jim" owns "jim@example.com" (see
-  // sql/004_test_data.sql), so reusing that email must be rejected with 409.
+  // seed/test_data.sql), so reusing that email must be rejected with 409.
   auto token = test_helpers::authenticate("127.0.0.1", 8848, "updateme_dup",
                                           "updateme_dup@example.com",
                                           "password123", 1990, "m", "US");
@@ -3025,7 +3025,7 @@ TEST_CASE("User can delete their own account (204 No Content)") {
 // whether the email exists or was rate-limited, to prevent user enumeration.
 
 TEST_CASE("ForgotPassword returns generic response for existing email") {
-  // Jim's email from seed data (sql/004_test_data.sql).
+  // Jim's email from seed data (seed/test_data.sql).
   nlohmann::json body = {{"email", "jim@example.com"}};
   auto resp = test_helpers::http_request("POST", "127.0.0.1", 8848,
                                          "/user/password/forgot", body.dump(),
@@ -3064,7 +3064,7 @@ TEST_CASE("ForgotPassword returns 400 for missing email") {
 // ---------------------------------------------------------------------------
 // POST /user/password/reset  (password reset consumption)
 //
-// Seed-data tokens (SHA-256 hashes stored in sql/004_test_data.sql):
+// Seed-data tokens (SHA-256 hashes stored in seed/test_data.sql):
 //   "test-reset-token"    -> valid, unused, expires 1h in the future
 //   "expired-reset-token" -> expired
 //   "used-reset-token"    -> already used

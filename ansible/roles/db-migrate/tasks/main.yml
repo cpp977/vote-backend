@@ -1,0 +1,384 @@
+---
+# roles/db-migrate/tasks/main.yml
+#
+# Applies the SQL migrations in migrations/ with golang-migrate, running the
+# tool as a throwaway rootless container on the vote network and connecting as
+# the migration role (see the db-users role).
+#
+# This is the only place that touches the schema. The PostgreSQL container no
+# longer mounts anything into /docker-entrypoint-initdb.d, so every database is
+# built purely from migrations/, whether it is created here or has been carried
+# along since before the migration framework existed.
+#
+# Ordering: run after `postgres` (cluster up) and `systemd` (network and
+# pg_hba.conf in place), and after `db-users` (the migration role must exist).
+# `systemd` already started the application container, so the last task
+# restarts it when -- and only when -- the schema version actually moved.
+
+- name: Assert required variables are defined
+  ansible.builtin.assert:
+    that:
+      - vote_backend_db_container_name is defined
+      - vote_backend_db_name is defined
+      - vote_backend_db_migration_user is defined
+      - vote_backend_db_migration_password is defined
+      - vote_backend_migrate_image is defined
+      - vote_backend_migrate_baseline_version is defined
+    fail_msg: >-
+      db-migrate role requires the db variables, vote_backend_migrate_image and
+      vote_backend_migrate_baseline_version to be set in the inventory.
+  tags: [migrate, always]
+
+- name: Ensure the migrations directory exists on the target
+  # A copy rather than a bind mount of the repository: the directory is
+  # relabelled for the container (:Z), which we do not want to do to a source
+  # tree, and it keeps the target working when the image is pulled instead of
+  # built there.
+  ansible.builtin.copy:
+    src: "{{ vote_backend_project_root }}/migrations/"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/migrations/"
+    mode: "0644"
+    directory_mode: "0755"
+  when: vote_backend_build_on_target | default(true)
+  tags: [migrate]
+
+- name: Wait for Postgres to accept connections
+  ansible.builtin.command: >
+    podman exec {{ vote_backend_db_container_name }} pg_isready -U postgres
+  register: db_migrate_pg_ready
+  until: db_migrate_pg_ready.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  tags: [migrate]
+
+# Assembled here rather than inline so the password can be URL-encoded: it is
+# vaulted, and a reserved character would silently corrupt the connection
+# string. Every task that uses it is no_log for the same reason.
+- name: Build the migration database URL
+  ansible.builtin.set_fact:
+    vote_backend_migrate_database_url: >-
+      postgres://{{ vote_backend_db_migration_user }}:{{ vote_backend_db_migration_password | urlencode }}@{{ vote_backend_db_container_name }}:5432/{{ vote_backend_db_name }}?sslmode=disable
+  no_log: true
+  tags: [migrate]
+
+# A separate task: a set_fact cannot reference a fact it defines in the same
+# task. Global flags come before golang-migrate's own subcommand, which the
+# tasks below append ("version", "force N", "up").
+- name: Build the golang-migrate invocation
+  ansible.builtin.set_fact:
+    vote_backend_migrate_argv:
+      - podman
+      - run
+      - --rm
+      - --network
+      - "{{ vote_backend_network_name }}"
+      - -v
+      - "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/migrations:/migrations:ro,Z"
+      - "{{ vote_backend_migrate_image }}"
+      - -path
+      - /migrations
+      - -database
+      - "{{ vote_backend_migrate_database_url }}"
+  no_log: true
+  tags: [migrate]
+
+- name: Read the migration version of the database
+  # A non-zero exit status means golang-migrate found no schema_migrations table
+  # at all: either a brand-new database, or one created by the old
+  # /docker-entrypoint-initdb.d scripts. Both are handled below.
+  ansible.builtin.command:
+    argv: "{{ vote_backend_migrate_argv + ['version'] }}"
+  register: db_migrate_version_before
+  changed_when: false
+  failed_when: false
+  no_log: true
+  tags: [migrate]
+
+- name: Detect a schema that predates the migration framework
+  # "No schema_migrations table" alone does not tell an existing database apart
+  # from an empty one, and baselining an empty database would mark it as fully
+  # migrated and skip three migrations. Two marker tables are enough to tell
+  # them apart: 000001 creates questions, 000002 creates users.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -tAc
+      - "SELECT COALESCE(to_regclass('public.questions') IS NOT NULL, false) AND COALESCE(to_regclass('public.users') IS NOT NULL, false)"
+  register: db_migrate_legacy_schema
+  changed_when: false
+  no_log: true
+  tags: [migrate]
+
+- name: Read the state golang-migrate recorded
+  # Empty output means no schema_migrations table at all. Otherwise "<version>/<dirty>",
+  # e.g. 6/f. A failed migration leaves the version it attempted behind with
+  # dirty = t, and every later run is refused with "Dirty database version 6",
+  # which is a confusing way to find out that the previous deploy broke halfway.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -tAc
+      - "SELECT (SELECT version || '/' || dirty FROM schema_migrations)"
+  register: db_migrate_state
+  changed_when: false
+  failed_when: false
+  no_log: true
+  tags: [migrate]
+
+- name: Stop on a dirty database
+  # Recovering means fixing the cause and clearing the flag at the *last good*
+  # version; forcing it to the failed one would tell the tool that a migration
+  # is applied which never ran.
+  ansible.builtin.assert:
+    that:
+      - db_migrate_state.stdout | default('') | trim is not match('.*/t')
+    fail_msg: >-
+      golang-migrate left the database dirty at version
+      {{ db_migrate_state.stdout | default('') | trim }}. Nothing after that
+      version was applied. Fix the cause, then run
+      'migrate -path /migrations -database <url> force {{ vote_backend_migrate_baseline_version }}'
+      (or the last version you know was applied) and re-run this role with
+      --tags migrate.
+  tags: [migrate]
+
+- name: Baseline a database that predates the migration framework
+  # `force` only writes a version into schema_migrations; it executes no SQL.
+  # The baseline is the last migration the old init scripts contained, so `up`
+  # below applies exactly the migrations added since, and nothing is replayed
+  # into a database that already has them. A database without that schema is
+  # left alone on purpose: for it `up` applies every migration from zero.
+  ansible.builtin.command:
+    argv: >-
+      {{ vote_backend_migrate_argv
+         + ['force', vote_backend_migrate_baseline_version | string] }}
+  when:
+    - db_migrate_version_before.rc != 0
+    - db_migrate_legacy_schema.stdout | default('') | trim == 't'
+  changed_when: true
+  no_log: true
+  tags: [migrate]
+
+- name: Hand the legacy objects over to the migration role
+  # The pre-golang-migrate init scripts ran as the bootstrap superuser, so on a
+  # database that predates the framework every table, sequence and index in
+  # public belongs to postgres. Only the owner may ALTER TABLE, so the very
+  # first migration would fail with "must be owner of table questions". The role
+  # has to own what it migrates.
+  #
+  # Idempotent: objects already owned by the role are skipped, and on a database
+  # built by this role there is nothing to hand over.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -i
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -v
+      - "ON_ERROR_STOP=1"
+      - -f
+      - /dev/stdin
+    stdin: |
+      DO $adoption$
+      DECLARE
+        role_name CONSTANT text := '{{ vote_backend_db_migration_user }}';
+        r record;
+      BEGIN
+        -- Only tables are touched: the indexes and serial-owned sequences of a
+        -- table follow its ownership ("cannot change owner of index ... change
+        -- the ownership of the index's table instead"), so altering them
+        -- separately is both unnecessary and an error.
+        FOR r IN
+          SELECT c.oid::regclass AS name
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public'
+             AND c.relkind IN ('r', 'p')
+             AND c.relowner <> role_name::regrole
+        LOOP
+          EXECUTE format('ALTER TABLE %s OWNER TO %I', r.name, role_name);
+        END LOOP;
+
+        -- The enum is owned separately; a later migration that adds a label to
+        -- special_category_type has to own it to do so.
+        FOR r IN
+          SELECT t.oid::regtype AS name
+            FROM pg_type t
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+           WHERE n.nspname = 'public'
+             AND t.typtype = 'e'
+             AND t.typowner <> role_name::regrole
+        LOOP
+          EXECUTE format('ALTER TYPE %s OWNER TO %I', r.name, role_name);
+        END LOOP;
+      END $adoption$;
+  when: db_migrate_legacy_schema.stdout | default('') | trim == 't'
+  changed_when: true
+  no_log: true
+  tags: [migrate]
+
+- name: Apply migrations
+  ansible.builtin.command:
+    argv: "{{ vote_backend_migrate_argv + ['up'] }}"
+  changed_when: false
+  no_log: true
+  tags: [migrate]
+
+- name: Read the migration version after applying
+  ansible.builtin.command:
+    argv: "{{ vote_backend_migrate_argv + ['version'] }}"
+  register: db_migrate_version_after
+  changed_when: false
+  failed_when: false
+  no_log: true
+  tags: [migrate]
+
+# Two shapes are possible: a database that already carries the legacy schema is
+# adopted at the baseline version, an empty one is built from the first
+# migration. Both are reported, because they leave very different databases.
+- name: Note how an untracked database was adopted
+  ansible.builtin.set_fact:
+    vote_backend_db_baseline_kind: >-
+      {{ 'legacy schema baselined at ' ~ vote_backend_migrate_baseline_version
+         if db_migrate_legacy_schema.stdout | default('') | trim == 't'
+         else 'built from zero' }}
+  tags: [migrate]
+
+# golang-migrate reports "no change" and "already at version N" identically
+# (exit 0), so the version before/after is the only reliable change signal.
+# The note explains how a database that had no schema_migrations table was
+# adopted; it stays empty for an already tracked database.
+- name: Note whether the schema moved
+  ansible.builtin.set_fact:
+    vote_backend_db_migrated: >-
+      {{ (db_migrate_version_before.stdout | default('') | trim)
+       != (db_migrate_version_after.stdout | default('') | trim) }}
+    vote_backend_db_migration_note: >-
+      {{ '' if db_migrate_version_before.rc == 0 else
+         ' [no schema_migrations table: ' ~ vote_backend_db_baseline_kind ~ ']' }}
+  tags: [migrate]
+
+- name: Report the migration result
+  ansible.builtin.debug:
+    msg: >-
+      schema version {{ db_migrate_version_before.stdout | default('none', true) | trim }}
+      -> {{ db_migrate_version_after.stdout | default('none', true) | trim }}
+      ({{ 'migrations applied' if vote_backend_db_migrated | bool
+      else 'already up to date' }}){{ vote_backend_db_migration_note | default('') }}
+  tags: [migrate]
+
+- name: Grant the maintenance role access to the questions table
+  # The db-users role creates the maintenance role but cannot grant on questions
+  # before the schema exists, so the table-level grant is applied here, after
+  # the migrations. Kept deliberately narrow: the maintenance job deletes
+  # rejected submissions, it does not get to touch anything else.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -c
+      - "GRANT SELECT, DELETE ON questions TO {{ vote_backend_db_maintenance_user }}"
+  changed_when: true
+  no_log: true
+  tags: [migrate]
+
+- name: Check whether the fixture users are already present
+  # The fixtures are loaded only into a database that has none of them. Asking
+  # the data rather than "was this run a fresh one" keeps the role convergent:
+  # a run that stopped between the migrations and the fixtures (or a playbook
+  # started with --tags migrate on an empty database) still seeds.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -tAc
+      - "SELECT EXISTS (SELECT 1 FROM users)"
+  register: db_migrate_fixtures_present
+  changed_when: false
+  no_log: true
+  tags: [migrate]
+
+- name: Load the demo and test fixtures into an empty database
+  # Fixtures are not schema and must never reach a persistent deployment, so
+  # this is gated on vote_backend_seed_enabled, which only the integration-test
+  # playbook turns on.
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -i
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -v
+      - "ON_ERROR_STOP=1"
+      - -f
+      - /dev/stdin
+    stdin: "{{ lookup('ansible.builtin.file', item) }}"
+  loop:
+    - "{{ vote_backend_project_root }}/seed/seed_data.sql"
+    - "{{ vote_backend_project_root }}/seed/test_data.sql"
+  loop_control:
+    label: "{{ item | basename }}"
+  when:
+    - vote_backend_seed_enabled | default(false)
+    - db_migrate_fixtures_present.stdout | default('') | trim == 'f'
+  changed_when: true
+  no_log: true
+  tags: [migrate]
+
+- name: Restart the backend against the new schema
+  ansible.builtin.systemd_service:
+    name: "vote-backend@{{ vote_backend_image_tag }}.service"
+    state: restarted
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ vote_backend_uid }}"
+  when: vote_backend_db_migrated | bool
+  tags: [migrate]

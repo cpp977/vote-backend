@@ -7,18 +7,20 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
-#include <stdexcept>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace test_helpers {
@@ -306,12 +308,51 @@ class NativeStack {
                     "\"CREATE DATABASE vote\"",
                     sock_dir_, pg_port_));
 
-    // Each file runs in a single psql session on purpose: 003_seed_data.sql
-    // relies on currval('questions_id_seq') across statements.
-    for (const char* f : {"001_init", "002_auth", "003_seed_data",
-                          "004_test_data", "005_regions"}) {
+    // The schema comes from migrations/ alone: every *.up.sql in version order,
+    // recorded in schema_migrations in the same transaction, exactly like the
+    // golang-migrate run the Ansible deployment does. The container path (CI)
+    // exercises the tool itself; running it here would add a binary to the
+    // container-free path, which exists precisely so the suite also runs where
+    // podman cannot.
+    const std::string migrations_dir =
+        fmt::format("{}/migrations", repo_root_);
+    std::vector<std::string> migrations;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(migrations_dir)) {
+      const std::string path = entry.path().string();
+      // Zero-padded version prefix, so a plain sort is the version order.
+      if (path.size() > 8 && path.ends_with(".up.sql")) {
+        migrations.push_back(path);
+      }
+    }
+    std::sort(migrations.begin(), migrations.end());
+    if (migrations.empty()) {
+      throw std::runtime_error("no migrations found in " + migrations_dir);
+    }
+    // Same shape golang-migrate's postgres driver uses.
+    run(fmt::format("psql -h {} -p {} -U postgres -d vote -v ON_ERROR_STOP=1 "
+                    "-c \"CREATE TABLE schema_migrations (version bigint "
+                    "NOT NULL PRIMARY KEY, dirty boolean NOT NULL)\"",
+                    sock_dir_, pg_port_));
+    for (const auto& migration : migrations) {
+      const std::string name =
+          std::filesystem::path(migration).filename().string();
+      const long long version =
+          std::stoll(name.substr(0, name.find('_')));
       run(fmt::format("psql -h {} -p {} -U postgres -d vote "
-                      "-v ON_ERROR_STOP=1 -f {}/sql/{}.sql",
+                      "--single-transaction -v ON_ERROR_STOP=1 -f {} "
+                      "-c \"INSERT INTO schema_migrations (version, dirty) "
+                      "VALUES ({}, false)\"",
+                      sock_dir_, pg_port_, migration, version));
+    }
+
+    // Fixture data, not schema: the demo questions the suite asserts on plus
+    // the users it logs in as. Applied after the migrations, like the
+    // db-migrate role does, and each file in its own psql session on purpose
+    // (seed_data.sql relies on currval('questions_id_seq') across statements).
+    for (const char* f : {"seed_data", "test_data"}) {
+      run(fmt::format("psql -h {} -p {} -U postgres -d vote "
+                      "-v ON_ERROR_STOP=1 -f {}/seed/{}.sql",
                       sock_dir_, pg_port_, repo_root_, f));
     }
 

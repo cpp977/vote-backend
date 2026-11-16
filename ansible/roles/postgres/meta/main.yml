@@ -3,7 +3,8 @@ galaxy_info:
   description: >-
     Manages the PostgreSQL database container for vote-backend.
     Creates the podman secret, renders the drogon-postgres quadlet (persistent
-    or ephemeral), stages pg_hba.conf, and copies SQL init scripts.
+    or ephemeral) and stages pg_hba.conf. The schema is not applied here; that
+    is the db-migrate role.
   author: vote-backend
   license: MIT
   min_ansible_version: "2.14"
