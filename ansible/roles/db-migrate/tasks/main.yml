@@ -34,12 +34,18 @@
   # relabelled for the container (:Z), which we do not want to do to a source
   # tree, and it keeps the target working when the image is pulled instead of
   # built there.
+  #
+  # Unconditional on purpose. Whether the container image is built on the target
+  # or pulled from a registry has nothing to do with whether the target needs
+  # the migration files: it always does, on every deploy. Gating this on
+  # vote_backend_build_on_target is what left the production host without a
+  # migrations directory, and `podman run` then failed with
+  # "statfs ...: no such file or directory" instead of the role saying so.
   ansible.builtin.copy:
     src: "{{ vote_backend_project_root }}/migrations/"
     dest: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/migrations/"
     mode: "0644"
     directory_mode: "0755"
-  when: vote_backend_build_on_target | default(true)
   tags: [migrate]
 
 - name: Wait for Postgres to accept connections
@@ -53,10 +59,11 @@
   tags: [migrate]
 
 - name: Check that the migrations are on the host
-  # The copy above is skipped when vote_backend_build_on_target is false, and
-  # the bind mount then fails inside podman ("statfs <path>: no such file or
-  # directory") rather than in this role -- which is a confusing place to find
-  # out that the target has no migrations at all.
+  # The copy above is unconditional, but it copies into the connecting user's
+  # home while the containers may run as another user, and a playbook started
+  # from the wrong checkout copies nothing useful. Either way the bind mount
+  # then fails inside podman ("statfs <path>: no such file or directory") rather
+  # than here, so the path is verified explicitly.
   ansible.builtin.stat:
     path: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/migrations/000001_init.up.sql"
   register: db_migrate_files
