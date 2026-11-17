@@ -182,9 +182,45 @@
       DELETE FROM schema_migrations;
       INSERT INTO schema_migrations (version, dirty)
           VALUES ({{ vote_backend_migrate_baseline_version }}, false);
+      ALTER TABLE schema_migrations OWNER TO {{ vote_backend_db_migration_user }};
   when:
     - db_migrate_legacy_schema.stdout | default('') | trim == 't'
     - db_migrate_state.stdout | default('') | trim == ''
+  changed_when: true
+  no_log: true
+  tags: [migrate]
+
+- name: Ensure the migration role owns the version table
+  # golang-migrate writes the applied version into schema_migrations, so the
+  # role it connects as has to own that table. Usually the tool creates it and
+  # does; a table created by hand -- for instance by an earlier baselining
+  # attempt running as postgres -- leaves the role unable to write, and `up`
+  # then fails with "permission denied for table schema_migrations".
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - -i
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -v
+      - "ON_ERROR_STOP=1"
+      - -f
+      - /dev/stdin
+    stdin: |
+      DO $ownership$
+      BEGIN
+        IF to_regclass('public.schema_migrations') IS NOT NULL THEN
+          EXECUTE format('ALTER TABLE public.schema_migrations OWNER TO %I',
+                         '{{ vote_backend_db_migration_user }}');
+        END IF;
+      END $ownership$;
   changed_when: true
   no_log: true
   tags: [migrate]

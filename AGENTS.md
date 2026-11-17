@@ -219,8 +219,15 @@ scripts contained) by creating golang-migrate's own bookkeeping table
 row, then applies only the newer migrations. Writing the row directly rather
 than with `migrate force` is deliberate: `force` updates a table it expects to
 exist, so it fails on a database that has never been tracked - which is exactly
-the case it is meant for. Nothing is replayed into a populated database. Verify
-the assumption before trusting it:
+the case it is meant for. Nothing is replayed into a populated database.
+
+The bookkeeping table ends up **owned by the migration role**, because
+golang-migrate writes the applied version into it: a `schema_migrations` created
+by anything else (a manual `CREATE TABLE`, or a baselining attempt that ran as
+`postgres`) leaves `vote_migration` unable to write, and `up` fails with
+`permission denied for table schema_migrations`. The role re-aligns ownership on
+every run, which is a no-op once it holds. Verify the assumption before trusting
+it:
 
 ```sh
 podman exec drogon-postgres psql -U postgres -d vote -tAc \
