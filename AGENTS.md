@@ -211,11 +211,15 @@ the password from the vault rather than pasting it into shell history.
 ### Databases that predate the framework
 
 A cluster created from the old `sql/` init scripts has the schema but no
-`schema_migrations` table. The db-migrate role detects that (`migrate version`
-fails) and **baselines** it with `migrate force` at
-`vote_backend_migrate_baseline_version` (5 - the last migration those scripts
-contained), then applies only the newer migrations. `force` writes the version
-without executing SQL, so nothing is replayed into a populated database. Verify
+`schema_migrations` table. The db-migrate role detects that by asking the
+database directly (marker tables, not the tool's exit status) and **baselines**
+it at `vote_backend_migrate_baseline_version` (5 - the last migration those
+scripts contained) by creating golang-migrate's own bookkeeping table
+(`schema_migrations(version bigint PRIMARY KEY, dirty boolean)`) with that single
+row, then applies only the newer migrations. Writing the row directly rather
+than with `migrate force` is deliberate: `force` updates a table it expects to
+exist, so it fails on a database that has never been tracked - which is exactly
+the case it is meant for. Nothing is replayed into a populated database. Verify
 the assumption before trusting it:
 
 ```sh
@@ -233,17 +237,18 @@ the migration role has nothing to hand over.
 
 A migration that fails leaves the database **dirty** (`schema_migrations.dirty =
 t` at the version it attempted) and every later run is refused with "Dirty
-database version N". Recovery is to fix the cause, point the tool back at the
-last version that really is in the database, and re-run:
+database version N". Recovery is to fix the cause, clear the flag at the last
+version that really is in the database, and re-run with `--tags migrate`:
 
 ```sh
-podman run --rm --network vote \
-  -v "$HOME/.local/share/vote-backend/migrations:/migrations:ro,Z" \
-  docker.io/migrate/migrate:v4.19.0 \
-  -path /migrations \
-  -database 'postgres://vote_migration:<pw>@drogon-postgres:5432/vote?sslmode=disable' \
-  force 5
+podman exec -i drogon-postgres \
+  psql -U postgres -d vote -v ON_ERROR_STOP=1 -c \
+  "UPDATE schema_migrations SET dirty = false WHERE version = 5"
 ```
+
+Check `SELECT version, dirty FROM schema_migrations` first: the version to keep
+is the one that actually applied, which is not necessarily the version the failed
+run recorded.
 
 A fresh persistent deployment ends up with an empty database and no users: the
 fixtures are not loaded there. Create the first account through

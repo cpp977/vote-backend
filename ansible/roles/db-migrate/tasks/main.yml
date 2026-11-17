@@ -83,23 +83,11 @@
   no_log: true
   tags: [migrate]
 
-- name: Read the migration version of the database
-  # A non-zero exit status means golang-migrate found no schema_migrations table
-  # at all: either a brand-new database, or one created by the old
-  # /docker-entrypoint-initdb.d scripts. Both are handled below.
-  ansible.builtin.command:
-    argv: "{{ vote_backend_migrate_argv + ['version'] }}"
-  register: db_migrate_version_before
-  changed_when: false
-  failed_when: false
-  no_log: true
-  tags: [migrate]
-
 - name: Detect a schema that predates the migration framework
-  # "No schema_migrations table" alone does not tell an existing database apart
-  # from an empty one, and baselining an empty database would mark it as fully
-  # migrated and skip three migrations. Two marker tables are enough to tell
-  # them apart: 000001 creates questions, 000002 creates users.
+  # Whether the database carries a schema is what tells an existing database
+  # apart from an empty one, and it must not be inferred from the tool: an empty
+  # database marked as migrated would skip three migrations. Two marker tables
+  # are enough: 000001 creates questions, 000002 creates users.
   ansible.builtin.command:
     argv:
       - podman
@@ -154,25 +142,49 @@
     fail_msg: >-
       golang-migrate left the database dirty at version
       {{ db_migrate_state.stdout | default('') | trim }}. Nothing after that
-      version was applied. Fix the cause, then run
-      'migrate -path /migrations -database <url> force {{ vote_backend_migrate_baseline_version }}'
-      (or the last version you know was applied) and re-run this role with
-      --tags migrate.
+      version was applied. Fix the cause, then clear the flag at the last
+      version you know was applied and re-run this role with --tags migrate:
+      UPDATE schema_migrations SET dirty = false WHERE version = <version>;
   tags: [migrate]
 
 - name: Baseline a database that predates the migration framework
-  # `force` only writes a version into schema_migrations; it executes no SQL.
+  # The table and its first row are written here rather than with
+  # `migrate force`: force writes the version into a table it expects to exist,
+  # and a database that has never been tracked has none. The shape is
+  # golang-migrate's own, so the tool picks it up unchanged afterwards.
+  #
   # The baseline is the last migration the old init scripts contained, so `up`
-  # below applies exactly the migrations added since, and nothing is replayed
+  # below applies exactly the migrations added since and nothing is replayed
   # into a database that already has them. A database without that schema is
   # left alone on purpose: for it `up` applies every migration from zero.
   ansible.builtin.command:
-    argv: >-
-      {{ vote_backend_migrate_argv
-         + ['force', vote_backend_migrate_baseline_version | string] }}
+    argv:
+      - podman
+      - exec
+      - -i
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -v
+      - "ON_ERROR_STOP=1"
+      - -f
+      - /dev/stdin
+    stdin: |
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+          version bigint NOT NULL PRIMARY KEY,
+          dirty boolean NOT NULL
+      );
+      DELETE FROM schema_migrations;
+      INSERT INTO schema_migrations (version, dirty)
+          VALUES ({{ vote_backend_migrate_baseline_version }}, false);
   when:
-    - db_migrate_version_before.rc != 0
     - db_migrate_legacy_schema.stdout | default('') | trim == 't'
+    - db_migrate_state.stdout | default('') | trim == ''
   changed_when: true
   no_log: true
   tags: [migrate]
@@ -251,8 +263,20 @@
 
 - name: Read the migration version after applying
   ansible.builtin.command:
-    argv: "{{ vote_backend_migrate_argv + ['version'] }}"
-  register: db_migrate_version_after
+    argv:
+      - podman
+      - exec
+      - -e
+      - "PGPASSWORD={{ vote_backend_db_postgres_password }}"
+      - "{{ vote_backend_db_container_name }}"
+      - psql
+      - -U
+      - postgres
+      - -d
+      - "{{ vote_backend_db_name }}"
+      - -tAc
+      - "SELECT version || '/' || dirty FROM schema_migrations"
+  register: db_migrate_state_after
   changed_when: false
   failed_when: false
   no_log: true
@@ -261,7 +285,7 @@
 # Two shapes are possible: a database that already carries the legacy schema is
 # adopted at the baseline version, an empty one is built from the first
 # migration. Both are reported, because they leave very different databases.
-- name: Note how an untracked database was adopted
+- name: Note how a database without a recorded version was adopted
   ansible.builtin.set_fact:
     vote_backend_db_baseline_kind: >-
       {{ 'legacy schema baselined at ' ~ vote_backend_migrate_baseline_version
@@ -269,25 +293,27 @@
          else 'built from zero' }}
   tags: [migrate]
 
-# golang-migrate reports "no change" and "already at version N" identically
-# (exit 0), so the version before/after is the only reliable change signal.
-# The note explains how a database that had no schema_migrations table was
-# adopted; it stays empty for an already tracked database.
+# The version before and after is the change signal: golang-migrate itself
+# reports "no change" and "already at version N" identically.
 - name: Note whether the schema moved
   ansible.builtin.set_fact:
+    vote_backend_db_version_before: >-
+      {{ (db_migrate_state.stdout | default('') | trim).split('/')[0]
+         | default('none', true) }}
     vote_backend_db_migrated: >-
-      {{ (db_migrate_version_before.stdout | default('') | trim)
-       != (db_migrate_version_after.stdout | default('') | trim) }}
+      {{ (db_migrate_state.stdout | default('') | trim)
+       != (db_migrate_state_after.stdout | default('') | trim) }}
     vote_backend_db_migration_note: >-
-      {{ '' if db_migrate_version_before.rc == 0 else
-         ' [no schema_migrations table: ' ~ vote_backend_db_baseline_kind ~ ']' }}
+      {{ '' if db_migrate_state.stdout | default('') | trim else
+         ' [' ~ vote_backend_db_baseline_kind ~ ']' }}
   tags: [migrate]
 
 - name: Report the migration result
   ansible.builtin.debug:
     msg: >-
-      schema version {{ db_migrate_version_before.stdout | default('none', true) | trim }}
-      -> {{ db_migrate_version_after.stdout | default('none', true) | trim }}
+      schema version {{ vote_backend_db_version_before }}
+      -> {{ (db_migrate_state_after.stdout | default('') | trim).split('/')[0]
+      | default('none', true) }}
       ({{ 'migrations applied' if vote_backend_db_migrated | bool
       else 'already up to date' }}){{ vote_backend_db_migration_note | default('') }}
   tags: [migrate]
