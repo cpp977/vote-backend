@@ -55,6 +55,38 @@
 # Assembled here rather than inline so the password can be URL-encoded: it is
 # vaulted, and a reserved character would silently corrupt the connection
 # string. Every task that uses it is no_log for the same reason.
+- name: Check that the migration container can run
+  # podman fails before any SQL is sent when the image is missing or the network
+  # is gone, and the task that runs the tool is no_log -- which would leave a
+  # deploy that fails with no visible reason and nothing in the postgres log.
+  # Checking both here turns that into an actionable message.
+  ansible.builtin.command:
+    argv: "{{ item }}"
+  loop:
+    - [podman, image, exists, "{{ vote_backend_migrate_image }}"]
+    - [podman, network, exists, "{{ vote_backend_network_name }}"]
+  register: db_migrate_preflight
+  changed_when: false
+  failed_when: false
+  loop_control:
+    label: "{{ item[1] }}"
+  tags: [migrate]
+
+- name: Note what the migration container is missing
+  ansible.builtin.set_fact:
+    vote_backend_migrate_problems: >-
+      {{ ([] if db_migrate_preflight.results[0].rc == 0
+          else ['image ' ~ vote_backend_migrate_image ~ ' is not present on this host: podman pull it (or let the container-image role build it)'])
+       + ([] if db_migrate_preflight.results[1].rc == 0
+          else ['podman network ' ~ vote_backend_network_name ~ ' does not exist: the systemd role installs the vote.network quadlet']) }}
+  tags: [migrate]
+
+- name: Stop when the migration container cannot run
+  ansible.builtin.assert:
+    that: vote_backend_migrate_problems | length == 0
+    fail_msg: "{{ vote_backend_migrate_problems | join(' ') }}"
+  tags: [migrate]
+
 - name: Build the migration database URL
   ansible.builtin.set_fact:
     vote_backend_migrate_database_url: >-
