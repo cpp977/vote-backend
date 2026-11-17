@@ -52,9 +52,23 @@
   changed_when: false
   tags: [migrate]
 
-# Assembled here rather than inline so the password can be URL-encoded: it is
-# vaulted, and a reserved character would silently corrupt the connection
-# string. Every task that uses it is no_log for the same reason.
+- name: Check that the migrations are on the host
+  # The copy above is skipped when vote_backend_build_on_target is false, and
+  # the bind mount then fails inside podman ("statfs <path>: no such file or
+  # directory") rather than in this role -- which is a confusing place to find
+  # out that the target has no migrations at all.
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/share/vote-backend/migrations/000001_init.up.sql"
+  register: db_migrate_files
+  tags: [migrate]
+
+- name: Note when the migrations are missing on the host
+  ansible.builtin.set_fact:
+    vote_backend_migrate_problems: >-
+      {{ ([] if db_migrate_files.stat.exists | default(false)
+         else ['no migrations on this host at ~/.local/share/vote-backend/migrations: run the playbook with vote_backend_build_on_target: true, or copy the directory over']) }}
+  tags: [migrate]
+
 - name: Check that the migration container can run
   # podman fails before any SQL is sent when the image is missing or the network
   # is gone, and the task that runs the tool is no_log -- which would leave a
@@ -75,7 +89,8 @@
 - name: Note what the migration container is missing
   ansible.builtin.set_fact:
     vote_backend_migrate_problems: >-
-      {{ ([] if db_migrate_preflight.results[0].rc == 0
+      {{ vote_backend_migrate_problems | default([])
+       + ([] if db_migrate_preflight.results[0].rc == 0
           else ['image ' ~ vote_backend_migrate_image ~ ' is not present on this host: podman pull it (or let the container-image role build it)'])
        + ([] if db_migrate_preflight.results[1].rc == 0
           else ['podman network ' ~ vote_backend_network_name ~ ' does not exist: the systemd role installs the vote.network quadlet']) }}
