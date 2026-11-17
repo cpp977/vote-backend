@@ -2579,7 +2579,18 @@ TEST_CASE(
   CHECK(r3.status == 400);
   CHECK(r3.json_body.contains("error"));
 
-  // 4. The rejected attempts left the submission pending.
+  // 4. A single answer option is not enough either: an approved question is
+  // public and answers cannot be edited afterwards, so a question with nothing
+  // to choose between could never be repaired.
+  nlohmann::json one_option = {{"category_id", 1},
+                               {"answer_options", {"Team A"}}};
+  auto r4 = test_helpers::http_request("POST", "127.0.0.1", 8848, approve_url,
+                                       one_option.dump(), "application/json",
+                                       admin_token);
+  CHECK(r4.status == 400);
+  CHECK(r4.json_body.contains("error"));
+
+  // 5. The rejected attempts left the submission pending.
   auto mine =
       test_helpers::http_request("GET", "127.0.0.1", 8848, "/questions/mine",
                                  "", "application/json", user_token);
@@ -2683,8 +2694,8 @@ TEST_CASE("ApproveQuestion keeps the answer options of the submission") {
   CHECK(approve.json_body["category_id"] == 1);
   REQUIRE(approve.json_body["answer_options"].size() == 2);
 
-  // 2. Approving a question that already has answer options with new ones is
-  // refused: the answers a user submitted are never replaced.
+  // 2. Approving a question that already has enough answer options with new
+  // ones is refused: the answers a user submitted are never replaced.
   nlohmann::json second = {{"text", "Should pets be allowed to vote?"},
                            {"category_id", 1},
                            {"language", "en"},
@@ -2725,6 +2736,63 @@ TEST_CASE("ApproveQuestion keeps the answer options of the submission") {
   CHECK(approve3.status == 200);
   CHECK(approve3.json_body["category_id"] == 2);
   REQUIRE(approve3.json_body["answer_options"].size() == 3);
+}
+
+TEST_CASE(
+    "ApproveQuestion completes a submission that arrived with one answer") {
+  auto user_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Jim", "12345678");
+  auto admin_token =
+      test_helpers::login_only("127.0.0.1", 8848, "Admin", "12345678");
+
+  // A user may submit a single option; the admin tops the question up to the
+  // two options a votable question needs. Appending, not replacing: the option
+  // the user wrote stays first.
+  nlohmann::json body = {{"text", "Is the cafeteria food edible?"},
+                         {"category_id", 1},
+                         {"language", "en"},
+                         {"answer_options", {"Yes"}}};
+  auto create = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848, "/questions/submissions", body.dump(),
+      "application/json", user_token);
+  CHECK(create.status == 201);
+  REQUIRE(create.json_body["answer_options"].size() == 1);
+  int new_id = create.json_body["id"].get<int>();
+
+  // One submitted option on its own is not approvable.
+  nlohmann::json category_only = {{"category_id", 1}};
+  auto too_few = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve",
+      category_only.dump(), "application/json", admin_token);
+  CHECK(too_few.status == 400);
+  CHECK(too_few.json_body.contains("error"));
+
+  // Approving with one more option completes the question.
+  nlohmann::json top_up = {{"category_id", 1}, {"answer_options", {"No"}}};
+  auto approve = test_helpers::http_request(
+      "POST", "127.0.0.1", 8848,
+      "/admin/questions/" + std::to_string(new_id) + "/approve", top_up.dump(),
+      "application/json", admin_token);
+  CHECK(approve.status == 200);
+  CHECK(approve.json_body["submission_status"] == "approved");
+  REQUIRE(approve.json_body["answer_options"].size() == 2);
+  // The submitted option comes first, the added one after it.
+  CHECK(approve.json_body["answer_options"][0]["text"] == "Yes");
+  CHECK(approve.json_body["answer_options"][1]["text"] == "No");
+  for (const auto& o : approve.json_body["answer_options"]) {
+    CHECK(o["question_id"] == new_id);
+  }
+
+  // Both options are stored and votable.
+  auto visible = test_helpers::http_request(
+      "GET", "127.0.0.1", 8848,
+      "/questions/" + std::to_string(new_id) + "/answers", "",
+      "application/json", user_token);
+  CHECK(visible.status == 200);
+  REQUIRE(visible.json_body.size() == 2);
+  CHECK(visible.json_body[0]["text"] == "Yes");
+  CHECK(visible.json_body[1]["text"] == "No");
 }
 
 TEST_CASE("ApproveQuestion only reviews a pending submission") {

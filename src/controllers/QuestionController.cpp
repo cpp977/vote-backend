@@ -67,20 +67,26 @@ std::string trimText(const std::string& text) {
   return begin < end ? std::string(begin, end) : std::string();
 }
 
-// Serializes the `id`, `text` rows of an answer_options query into the
-// "answer_options" JSON array of a submission. `questionId` is the question the
-// rows belong to.
-Json::Value answerOptionsToJson(const drogon::orm::Result& rows,
-                                int64_t questionId) {
-  Json::Value arr(Json::arrayValue);
+// Appends the `id`, `text` rows of an answer_options query to an existing
+// "answer_options" JSON array. `questionId` is the question the rows belong to.
+void appendAnswerOptions(Json::Value& array, const drogon::orm::Result& rows,
+                         int64_t questionId) {
   for (const auto& row : rows) {
     Json::Value o;
     o["id"] = Json::Value(static_cast<Json::Int64>(row["id"].as<long long>()));
     o["question_id"] = Json::Value(static_cast<Json::Int64>(questionId));
     o["text"] = row["text"].as<std::string>();
-    arr.append(o);
+    array.append(o);
   }
-  return arr;
+}
+
+// Serializes the `id`, `text` rows of an answer_options query into the
+// "answer_options" JSON array of a submission.
+Json::Value answerOptionsToJson(const drogon::orm::Result& rows,
+                                int64_t questionId) {
+  Json::Value array(Json::arrayValue);
+  appendAnswerOptions(array, rows, questionId);
+  return array;
 }
 
 // Result of normalizing a JSON "answer_options" member.
@@ -2002,22 +2008,32 @@ void QuestionController::approveQuestion(
               }
 
               // 4. / 5. The answer options of the question. Ones the submitter
-              //    provided are kept as they are; missing ones are completed
-              //    here, so the question can be voted on once it is public.
+              //    provided are kept as they are; missing ones are appended
+              //    here, so a question that arrived with a single option can
+              //    still be completed rather than having to be resubmitted.
+              //
+              //    Two options is the minimum for a meaningful vote: an
+              //    approved question is public and, because answers cannot be
+              //    edited afterwards, a one-option question could never be
+              //    repaired. Nothing is ever updated or removed, so the
+              //    submitter's own options stay untouched.
               *dbClient << "SELECT id, text FROM answer_options "
                            "WHERE question_id = $1::bigint ORDER BY id"
                         << qid >>
                   [=](const Result& existing) {
-                    if (!existing.empty() && !answer_options.empty()) {
+                    constexpr size_t kMinAnswerOptions = 2;
+                    if (existing.size() >= kMinAnswerOptions &&
+                        !answer_options.empty()) {
                       respondWithError(
                           "the question already has answer options",
                           k409Conflict);
                       return;
                     }
-                    if (existing.empty() && answer_options.empty()) {
+                    if (existing.size() + answer_options.size() <
+                        kMinAnswerOptions) {
                       respondWithError(
-                          "at least one answer option is required to approve "
-                          "a question",
+                          "at least two answer options are required to "
+                          "approve a question",
                           k400BadRequest);
                       return;
                     }
@@ -2106,8 +2122,14 @@ void QuestionController::approveQuestion(
                                   binder << t;
                                 }
                                 binder >> [=](const Result& inserted) {
-                                  respondAfterCommit(
-                                      approvalBody(updated[0], qid, inserted));
+                                  // The question's options are the ones the
+                                  // submitter provided, in their order, plus
+                                  // the ones appended here.
+                                  Json::Value body =
+                                      approvalBody(updated[0], qid, existing);
+                                  appendAnswerOptions(body["answer_options"],
+                                                      inserted, qid);
+                                  respondAfterCommit(body);
                                 } >> [=](const DrogonDbException& e) {
                                   trans->rollback();
                                   respondWithDatabaseError(
