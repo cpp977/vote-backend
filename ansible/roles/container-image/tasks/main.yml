@@ -22,3 +22,7 @@
       force_rm: true
   register: image_build
   when: vote_backend_build_on_target | default(true)
+
+- name: Pull migration image
+  containers.podman.podman_image:
+    name: "{{ vote_backend_migrate_image }}"
